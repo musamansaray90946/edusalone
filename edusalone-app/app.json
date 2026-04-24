@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "EduSalone",
+    "slug": "palmtech-edusalone",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1A365D"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.palmtech.edusalone"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#1A365D"
+      },
+      "package": "com.palmtech.edusalone"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e91f508c-2d77-4ff4-a87c-dcf02deee385"
+      }
+    }
+  }
+}
