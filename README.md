@@ -1,50 +1,29 @@
-# Welcome to your Expo app 👋
+# 🎓 EduSalone — Educational SaaS Platform
+**The Premier School Management System built for Sierra Leone.**
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+![React Native](https://img.shields.io/badge/React_Native-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![Expo](https://img.shields.io/badge/Expo-1B1F23?style=for-the-badge&logo=expo&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-181818?style=for-the-badge&logo=supabase&logoColor=3ECF8E)
+![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)
 
-## Get started
+🌍 **Live Web App:** [https://edusalone.vercel.app](https://edusalone.vercel.app)
 
-1. Install dependencies
+##  Overview
+EduSalone is a production-ready, multi-tenant Software as a Service (SaaS) designed to digitize school administration across West Africa. It features strict Role-Based Access Control (RBAC), offline tolerance, and complex mathematical auto-grading specifically tailored for the WASSCE/BECE curriculum.
 
-   ```bash
-   npm install
-   ```
+## ✨ Core Features
+*   **Multi-Tenant Architecture:** Single backend supporting unlimited schools with Row Level Security (RLS) data isolation.
+*   **Role-Based Portals:** Dedicated, secure dashboards for Super Admins, Principals, Teachers, Students, and Parents.
+*   **Automated PDF Report Cards:** Generates complex, 25-column A4 printable PDF report cards directly on-device.
+*   **Mathematical Grading Engine:** Auto-calculates term totals, yearly means, and official letter grades (A1 - F9).
+*   **Financial Ledger:** Tracks SLL (Sierra Leonean Leones) fee payments, partial balances, and generates PDF receipts.
+*   **Offline-Tolerant:** Utilizes `AsyncStorage` to cache student data gracefully when internet connectivity drops.
 
-2. Start the app
+## 🛠️ Tech Stack
+*   **Frontend:** React Native (Expo) - Cross-platform Mobile (iOS/Android) and Web.
+*   **Backend / Database:** Supabase (PostgreSQL).
+*   **PDF Generation:** `expo-print` & `expo-sharing`.
+*   **Hosting:** Vercel (Web Dashboard) & EAS (Android APK/AAB).
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+---
+*Architected and developed by[Musa Mansaray](https://github.com/musamansaray90946) | PalmTech Group Ltd.*
