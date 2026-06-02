@@ -1,9 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../../src/lib/supabase';
+
+// 🌟 ENTERPRISE: DYNAMIC SCHOOL THEME HASH FUNCTION
+const getSchoolThemeColor = (schoolName: string) => {
+  const premiumColors = ['#1A365D', '#742A2A', '#276749', '#553C9A', '#9B2C2C', '#285E61', '#9C4221', '#005b96', '#5F370E', '#4A5568'];
+  if (!schoolName) return premiumColors[0];
+  let hash = 0;
+  for (let i = 0; i < schoolName.length; i++) {
+    hash = schoolName.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return premiumColors[Math.abs(hash) % premiumColors.length];
+};
 
 export default function StudentsScreen() {
   const [fullName, setFullName] = useState('');
@@ -16,19 +28,14 @@ export default function StudentsScreen() {
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
-  const[printingId, setPrintingId] = useState<string | null>(null);
+  const [printingId, setPrintingId] = useState<string | null>(null);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [publishingClass, setPublishingClass] = useState<string | null>(null); // State for the Publish button
+  const [printingRoster, setPrintingRoster] = useState(false);
 
-  // 📅 ATTENDANCE STATE
-  const[attClass, setAttClass] = useState('JSS1');
-  const [attMonth, setAttMonth] = useState(new Date().getMonth() + 1);
-  const [generatingAtt, setGeneratingAtt] = useState(false);
-  const classOptions =['JSS1', 'JSS2', 'JSS3', 'SS1', 'SS2', 'SS3'];
-  const monthOptions =[
-    { num: 1, name: 'Jan' }, { num: 2, name: 'Feb' }, { num: 3, name: 'Mar' },
-    { num: 4, name: 'Apr' }, { num: 5, name: 'May' }, { num: 6, name: 'Jun' },
-    { num: 7, name: 'Jul' }, { num: 8, name: 'Aug' }, { num: 9, name: 'Sep' },
-    { num: 10, name: 'Oct' }, { num: 11, name: 'Nov' }, { num: 12, name: 'Dec' }
-  ];
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   useEffect(() => { loadInitialData(); },[]);
   useEffect(() => { if (school) fetchStudents(); }, [school]);
@@ -51,7 +58,7 @@ export default function StudentsScreen() {
     if (!school) return;
     setFetching(true);
     try {
-      const { data, error } = await supabase.from('students').select('*, users!user_id(full_name)').eq('school_id', school.id).order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('students').select('*, users!user_id(*)').eq('school_id', school.id).order('created_at', { ascending: false });
       if (error) throw error;
       if (data) setStudents(data);
     } catch (err: any) { Alert.alert("Error", "Failed to load students."); }
@@ -63,16 +70,44 @@ export default function StudentsScreen() {
     if (!fullName || !admissionNumber || !currentClass) { Alert.alert('Missing Info', 'Please fill out all fields.'); return; }
     setLoading(true);
     try {
-      const { data: userData, error: userError } = await supabase.from('users').insert([{ school_id: school.id, role: 'Student', full_name: fullName, email: `${admissionNumber.toLowerCase()}@student.sl`, is_active: true }]).select().single();
+      const { data: userData, error: userError } = await supabase.from('users').insert([{ 
+        school_id: school.id, role: 'Student', full_name: fullName.trim(), email: `${admissionNumber.trim().toLowerCase()}@student.sl`, is_active: true 
+      }]).select().single();
       if (userError) throw userError;
-      const { error: studentError } = await supabase.from('students').insert([{ user_id: userData.id, school_id: school.id, admission_number: admissionNumber, current_class: currentClass.toUpperCase().replace(/\s/g, ''), gender: gender, date_of_birth: dob }]);
+      
+      const { error: studentError } = await supabase.from('students').insert([{ 
+        user_id: userData.id, school_id: school.id, admission_number: admissionNumber.trim(), current_class: currentClass.toUpperCase().replace(/\s/g, ''), gender: gender, date_of_birth: dob, report_published: false
+      }]);
       if (studentError) throw studentError;
-
+      
       Alert.alert('Success!', `${fullName} enrolled successfully!`);
       setFullName(''); setAdmissionNumber(''); setCurrentClass(''); setDob(''); setGender('Male');
       fetchStudents(); 
-    } catch (err: any) { Alert.alert('Enrollment Error', err.message); }
+    } catch (err: any) { Alert.alert('Error', err.message); }
     setLoading(false);
+  }
+
+  async function handleBulkUpload() {
+    if (!bulkText.trim() || !school) return;
+    setBulkLoading(true);
+    const lines = bulkText.split('\n').filter(l => l.trim().length > 0);
+    let successCount = 0; let failCount = 0;
+    
+    for (const line of lines) {
+      const parts = line.includes('\t') ? line.split('\t') : line.split(',');
+      if (parts.length < 3) { failCount++; continue; }
+      const fName = parts[0]?.trim(); const adm = parts[1]?.trim(); const cClass = parts[2]?.trim().toUpperCase().replace(/\s/g, ''); const gen = parts[3]?.trim() || 'Male'; const dBirth = parts[4]?.trim() || '';
+      try {
+        const { data: userData, error: userError } = await supabase.from('users').insert([{ school_id: school.id, role: 'Student', full_name: fName, email: `${adm.toLowerCase()}@student.sl`, is_active: true }]).select().single();
+        if (userError) throw userError;
+        const { error: studentError } = await supabase.from('students').insert([{ user_id: userData.id, school_id: school.id, admission_number: adm, current_class: cClass, gender: gen, date_of_birth: dBirth, report_published: false }]);
+        if (studentError) throw studentError;
+        successCount++;
+      } catch (err) { failCount++; }
+    }
+    setBulkLoading(false); setShowBulkModal(false); setBulkText('');
+    Alert.alert('Upload Complete', `Successfully added: ${successCount}\nFailed/Duplicates: ${failCount}`);
+    fetchStudents();
   }
 
   async function deleteStudent(userId: string) {
@@ -82,80 +117,175 @@ export default function StudentsScreen() {
       fetchStudents();
     } catch (err: any) { Alert.alert('Delete Error', err.message); }
   }
+// 📚 PUBLISH BY CLASS LOGIC
+  async function publishByClass(className: string, publish: boolean) {
+    const classStudents = students.filter(s => s.current_class === className);
+    const ids = classStudents.map(s => s.id);
+    if (ids.length === 0) { Alert.alert('Notice', `No students found in ${className}.`); return; }
+    Alert.alert(
+      publish ? `📢 Publish All in ${className}?` : `🔒 Unpublish All in ${className}?`,
+      `${publish ? 'Allow' : 'Remove'} report card access for ${ids.length} student${ids.length !== 1 ? 's' : ''} in ${className}.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: publish ? 'Yes, Publish All' : 'Yes, Unpublish All', onPress: async () => {
+            setPublishingClass(className);
+            try {
+              const { error } = await supabase.from('students').update({ report_published: publish }).in('id', ids);
+              if (error) throw error;
+              if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert('Done! ✅', `${ids.length} student${ids.length !== 1 ? 's' : ''} in ${className} ${publish ? 'can now access' : 'can no longer see'} their report cards.`);
+              fetchStudents();
+            } catch (e: any) { Alert.alert('Error', e.message); }
+            setPublishingClass(null);
+        }}
+      ]
+    );
+  }
+  // 🌟 NEW: PUBLISH REPORT CARD LOGIC
+  async function togglePublishReport(studentId: string, currentStatus: boolean, studentName: string) {
+    const newStatus = !currentStatus;
+    Alert.alert(
+      newStatus ? "Publish Report Card?" : "Hide Report Card?",
+      newStatus ? `Allow ${studentName} and their parents to download this term's report card?` : `Hide the report card from ${studentName}'s dashboard?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: newStatus ? "Yes, Publish" : "Yes, Hide", onPress: async () => {
+            setPublishingId(studentId);
+            try {
+              const { error } = await supabase.from('students').update({ report_published: newStatus }).eq('id', studentId);
+              if (error) throw error;
+              if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              fetchStudents(); // Refresh the list instantly
+            } catch(e: any) { Alert.alert("Error", e.message); }
+            setPublishingId(null);
+        }}
+      ]
+    );
+  }
 
-  // ==========================================
-  // 📅 ATTENDANCE PDF GENERATOR
-  // ==========================================
-  async function generateAttendancePDF() {
-    if (!school) return;
-    setGeneratingAtt(true);
+  async function generateMasterRosterPDF() {
+    if (!school || students.length === 0) {
+      Alert.alert('Notice', 'No students enrolled to print.');
+      return;
+    }
+    setPrintingRoster(true);
     try {
-      const { data: classStudents } = await supabase.from('students').select('id, users!user_id(full_name)').eq('school_id', school.id).eq('current_class', attClass).order('created_at', { ascending: true });
-      if (!classStudents || classStudents.length === 0) { Alert.alert('No Students', `No students found in ${attClass}.`); setGeneratingAtt(false); return; }
+      const themeColor = getSchoolThemeColor(school?.name);
+      const logoHtml = school?.logo_url ? `<img src="${school.logo_url}" class="logo-img" />` : `<div class="logo-placeholder">LOGO</div>`;
+      const currentDate = new Date().toLocaleString();
 
-      const year = new Date().getFullYear();
-      const monthStr = attMonth < 10 ? `0${attMonth}` : `${attMonth}`;
-      const startDate = `${year}-${monthStr}-01`;
-      const endDate = `${year}-${monthStr}-31`;
+      let tableRows = '';
+      students.forEach((std, index) => {
+        const name = std.users?.full_name || 'Unknown';
+        const phone = std.users?.phone || std.users?.phone_number || 'N/A'; 
+        const yearEnrolled = new Date(std.created_at).getFullYear();
 
-      const { data: attendanceData } = await supabase.from('daily_attendance').select('*').eq('school_id', school.id).gte('date', startDate).lte('date', endDate);
-
-      let rowsHtml = '';
-      classStudents.forEach((std, index) => {
-        let daysHtml = ''; let p = 0; let a = 0; let l = 0;
-        for (let i = 1; i <= 31; i++) {
-          const dayStr = i < 10 ? `0${i}` : `${i}`;
-          const targetDate = `${year}-${monthStr}-${dayStr}`;
-          const record = attendanceData?.find(r => r.student_id === std.id && r.date === targetDate);
-          let mark = '';
-          if (record) {
-            if (record.status === 'Present') { mark = 'P'; p++; }
-            if (record.status === 'Absent') { mark = '<span style="color:red; font-weight:bold;">A</span>'; a++; }
-            if (record.status === 'Late') { mark = '<span style="color:orange; font-weight:bold;">L</span>'; l++; }
-          }
-          daysHtml += `<td>${mark}</td>`;
-        }
-        rowsHtml += `<tr><td>${index + 1}</td><td style="text-align: left; padding-left: 5px;">${std.users?.full_name}</td>${daysHtml}<td style="font-weight: bold;">${p}</td><td style="font-weight: bold; color: red;">${a}</td><td style="font-weight: bold; color: orange;">${l}</td></tr>`;
+        tableRows += `
+          <tr>
+            <td>${index + 1}</td>
+            <td style="font-weight: bold; color: #2D3748;">${std.admission_number || 'N/A'}</td>
+            <td style="text-align: left; font-weight: bold; color: ${themeColor};">${name.toUpperCase()}</td>
+            <td>${std.gender || 'N/A'}</td>
+            <td>${std.date_of_birth || 'N/A'}</td>
+            <td style="font-weight: bold;">${std.current_class || 'N/A'}</td>
+            <td>${yearEnrolled}</td>
+            <td>${phone}</td>
+          </tr>
+        `;
       });
 
-      let dayHeaders = '';
-      for (let i=1; i<=31; i++) { dayHeaders += `<th>${i}</th>`; }
-      const monthName = monthOptions.find(m => m.num === attMonth)?.name;
-      const logoHtml = school?.logo_url && school.logo_url.startsWith('http') ? `<img src="${school.logo_url}" style="height: 60px; margin-bottom: 5px;" />` : '';
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            @page { size: A4 landscape; margin: 15mm; }
+            body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #333; background: #fff; }
+            .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px double ${themeColor}; padding-bottom: 10px; margin-bottom: 15px; }
+            .header-text { text-align: center; flex: 1; }
+            h1 { color: ${themeColor}; margin: 0 0 5px 0; font-size: 24px; text-transform: uppercase; font-weight: 900; }
+            .doc-title { font-weight: 900; font-size: 14px; letter-spacing: 1px; color: #4A5568; background: #EDF2F7; padding: 5px 15px; display: inline-block; border-radius: 4px; border: 1px solid #CBD5E0; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th, td { border: 1px solid #CBD5E0; padding: 8px 6px; text-align: center; }
+            th { background-color: ${themeColor}; color: white; font-weight: bold; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
+            tr:nth-child(even) { background-color: #F8FAFC; }
+            .logo-img { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; border: 2px solid ${themeColor}; }
+            .logo-placeholder { width: 60px; height: 60px; border-radius: 50%; border: 2px solid ${themeColor}; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; color: ${themeColor}; font-size: 10px; }
+            .footer { margin-top: 30px; font-size: 8px; color: #A0AEC0; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 10px; font-style: italic; }
+            .meta-info { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 10px; font-weight: bold; color: #4A5568; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            ${logoHtml}
+            <div class="header-text">
+              <h1>${school.name}</h1>
+              <div class="doc-title">MASTER STUDENT BIO & ROSTER LEDGER</div>
+            </div>
+            ${logoHtml}
+          </div>
+          
+          <div class="meta-info">
+            <span>Generated by: Office of the Principal / Admin</span>
+            <span>Total Enrolled: <span style="color:${themeColor}; font-size: 12px;">${students.length}</span></span>
+            <span>Date: ${currentDate}</span>
+          </div>
 
-      const htmlContent = `<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" /><style>@page { size: A4 landscape; margin: 10mm; } body { font-family: Helvetica, Arial, sans-serif; font-size: 10px; } .header { text-align: center; margin-bottom: 15px; } table { width: 100%; border-collapse: collapse; text-align: center; } th, td { border: 1px solid #000; padding: 4px; } th { background-color: #E2E8F0; }</style></head><body><div class="header">${logoHtml}<h2 style="margin:0;">${school.name.toUpperCase()}</h2><h3 style="margin:5px 0;">OFFICIAL CLASS REGISTER: ${attClass} | ${monthName?.toUpperCase()} ${year}</h3></div><table><tr><th width="3%">No.</th><th width="15%">Student Name</th>${dayHeaders}<th width="3%">P</th><th width="3%">A</th><th width="3%">L</th></tr>${rowsHtml}</table><div style="margin-top: 15px; font-size: 11px;"><strong>Key:</strong> P = Present &nbsp;|&nbsp; <span style="color:red">A = Absent</span> &nbsp;|&nbsp; <span style="color:orange">L = Late</span></div><div style="margin-top: 40px; display: flex; justify-content: space-between;"><div style="border-top: 1px solid #000; width: 250px; text-align: center; padding-top: 5px;">Class Teacher's Signature</div><div style="border-top: 1px solid #000; width: 250px; text-align: center; padding-top: 5px;">Principal's Signature</div></div></body></html>`;
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 5%;">S/N</th>
+                <th style="width: 12%;">ADM NO.</th>
+                <th style="text-align: left; width: 25%;">FULL NAME</th>
+                <th style="width: 10%;">GENDER</th>
+                <th style="width: 12%;">D.O.B</th>
+                <th style="width: 10%;">CLASS</th>
+                <th style="width: 10%;">ENROLLED</th>
+                <th style="width: 16%;">TELEPHONE</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+          <div class="footer">
+            Official Internal Document • Securely Generated by EduSalone Management System • Do Not Alter
+          </div>
+        </body>
+        </html>
+      `;
 
       if (Platform.OS === 'web') {
         const printWindow = window.open('', '_blank');
-        if (printWindow) { printWindow.document.write(htmlContent); printWindow.document.close(); setTimeout(() => { printWindow.print(); }, 500); }
+        if (printWindow) { printWindow.document.write(htmlContent); printWindow.document.close(); setTimeout(() => printWindow.print(), 500); }
       } else {
         const { uri } = await Print.printToFileAsync({ html: htmlContent });
         await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
       }
-    } catch (error: any) { Alert.alert('Error', 'Could not generate Register: ' + error.message); }
-    setGeneratingAtt(false);
+    } catch (err: any) {
+      Alert.alert('Error', 'Could not generate Roster PDF.');
+    }
+    setPrintingRoster(false);
   }
 
-  // ==========================================
-  // 🖨️ REPORT CARD PDF GENERATOR
-  // ==========================================
   async function generatePDFReportCard(student: any) {
     setPrintingId(student.id);
     try {
       const { data: grades } = await supabase.from('academic_records').select('*').eq('student_id', student.id);
       const { data: evalsData } = await supabase.from('student_evaluations').select('*').eq('student_id', student.id).order('term', { ascending: false }).limit(1);
-      
       const { data: attendanceData } = await supabase.from('daily_attendance').select('status').eq('student_id', student.id);
+      
       let presentCount = 0; let absentCount = 0; let lateCount = 0;
       if (attendanceData) {
-        attendanceData.forEach(record => { if (record.status === 'Present') presentCount++; else if (record.status === 'Absent') absentCount++; else if (record.status === 'Late') lateCount++; });
+        attendanceData.forEach((record: any) => { if (record.status === 'Present') presentCount++; else if (record.status === 'Absent') absentCount++; else if (record.status === 'Late') lateCount++; });
       }
 
       const ev = evalsData && evalsData.length > 0 ? evalsData[0] : null;
-
       const subjectMap: any = {};
       if (grades) {
-        grades.forEach((g) => {
+        grades.forEach((g: any) => {
           if (!subjectMap[g.subject]) { subjectMap[g.subject] = { First: null, Second: null, Third: null }; }
           if (g.term.includes('First')) subjectMap[g.subject].First = g;
           if (g.term.includes('Second')) subjectMap[g.subject].Second = g;
@@ -182,17 +312,35 @@ export default function StudentsScreen() {
           const meanStr = termsTaken > 0 ? meanNum.toFixed(1) : '-';
           grandTotalScore += yearlyTotal; maxPossibleGrandTotal += (termsTaken * 100); 
 
-          let finalGrade = 'F9'; let finalRemark = 'FAIL';
-          if (meanNum >= 75) { finalGrade = 'A1'; finalRemark = 'EXCELLENT'; } else if (meanNum >= 70) { finalGrade = 'B2'; finalRemark = 'V. GOOD'; } else if (meanNum >= 65) { finalGrade = 'B3'; finalRemark = 'GOOD'; } else if (meanNum >= 60) { finalGrade = 'C4'; finalRemark = 'CREDIT'; } else if (meanNum >= 50) { finalGrade = 'C6'; finalRemark = 'CREDIT'; } else if (meanNum >= 40) { finalGrade = 'E8'; finalRemark = 'PASS'; }
+          const isJSSClass = (student.current_class || '').toUpperCase().includes('JSS');
+          let finalGrade = isJSSClass ? '6' : 'F9';
+          let finalRemark = 'FAIL'; let gClass = 'g-fail';
+          if (isJSSClass) {
+            if (meanNum >= 75) { finalGrade = '1'; finalRemark = 'EXCELLENT'; gClass = 'g-pass'; }
+            else if (meanNum >= 65) { finalGrade = '2'; finalRemark = 'V. GOOD'; gClass = 'g-pass'; }
+            else if (meanNum >= 55) { finalGrade = '3'; finalRemark = 'GOOD'; gClass = 'g-pass'; }
+            else if (meanNum >= 45) { finalGrade = '4'; finalRemark = 'CREDIT'; gClass = 'g-pass'; }
+            else if (meanNum >= 35) { finalGrade = '5'; finalRemark = 'PASS'; gClass = 'g-pass'; }
+          } else {
+            if (meanNum >= 75) { finalGrade = 'A1'; finalRemark = 'EXCELLENT'; gClass = 'g-pass'; }
+            else if (meanNum >= 70) { finalGrade = 'B2'; finalRemark = 'VERY GOOD'; gClass = 'g-pass'; }
+            else if (meanNum >= 65) { finalGrade = 'B3'; finalRemark = 'GOOD'; gClass = 'g-pass'; }
+            else if (meanNum >= 60) { finalGrade = 'C4'; finalRemark = 'CREDIT'; gClass = 'g-pass'; }
+            else if (meanNum >= 55) { finalGrade = 'C5'; finalRemark = 'CREDIT'; gClass = 'g-pass'; }
+            else if (meanNum >= 50) { finalGrade = 'C6'; finalRemark = 'CREDIT'; gClass = 'g-pass'; }
+            else if (meanNum >= 45) { finalGrade = 'D7'; finalRemark = 'PASS'; gClass = 'g-pass'; }
+            else if (meanNum >= 40) { finalGrade = 'E8'; finalRemark = 'PASS'; gClass = 'g-pass'; }
+          }
 
           gradesHtml += `
             <tr>
-              <td class="text-left font-bold" style="font-size: 9px;">${sub}</td><td>100</td>
-              <td class="bg-light">${t1Test1}</td><td class="bg-light">${t1Test2}</td><td class="bg-light">${t1Exam}</td><td class="bg-light font-bold">${t1Score}</td><td class="bg-light">${t1Score}</td><td class="bg-light">${t1?.rank||'-'}</td>
-              <td>${t2Test1}</td><td>${t2Test2}</td><td>${t2Exam}</td><td class="font-bold">${t2Score}</td><td>${t2Score}</td><td>${t2?.rank||'-'}</td>
-              <td class="bg-light">${t3Test1}</td><td class="bg-light">${t3Test2}</td><td class="bg-light">${t3Exam}</td><td class="bg-light font-bold">${t3Score}</td><td class="bg-light">${t3Score}</td><td class="bg-light">${t3?.rank||'-'}</td>
-              <td class="font-bold">${termsTaken > 0 ? yearlyTotal : '-'}</td><td class="font-bold">${meanStr}</td><td>-</td> 
-              <td class="font-bold">${termsTaken > 0 ? finalGrade : '-'}</td><td style="font-size: 8px; font-weight: bold;">${termsTaken > 0 ? finalRemark : '-'}</td>
+              <td class="subj-cell">${sub}</td><td>100</td>
+              <td>${t1Test1}</td><td>${t1Test2}</td><td>${t1Exam}</td><td style="font-weight:bold;">${t1Score}</td><td>${t1?.mean||t1Score}</td><td>${t1?.rank||'-'}</td>
+              <td>${t2Test1}</td><td>${t2Test2}</td><td>${t2Exam}</td><td style="font-weight:bold;">${t2Score}</td><td>${t2?.mean||t2Score}</td><td>${t2?.rank||'-'}</td>
+              <td>${t3Test1}</td><td>${t3Test2}</td><td>${t3Exam}</td><td style="font-weight:bold;">${t3Score}</td><td>${t3?.mean||t3Score}</td><td>${t3?.rank||'-'}</td>
+              <td style="font-weight:bold; background-color: #FFFAF0;">${termsTaken > 0 ? yearlyTotal : '-'}</td><td style="font-weight:bold; background-color: #FFFAF0;">${meanStr}</td><td>-</td> 
+              <td class="${gClass}" style="font-weight:bold; font-size: 8px;">${termsTaken > 0 ? finalGrade : '-'}</td>
+              <td class="${gClass}" style="font-size: 6px; font-weight: 900; letter-spacing: 0.5px; white-space: nowrap;">${termsTaken > 0 ? finalRemark : '-'}</td>
             </tr>
           `;
         });
@@ -201,42 +349,280 @@ export default function StudentsScreen() {
       const overallPercentageNum = maxPossibleGrandTotal > 0 ? (grandTotalScore / maxPossibleGrandTotal) * 100 : 0;
       const overallPercentageStr = maxPossibleGrandTotal > 0 ? overallPercentageNum.toFixed(1) : '0';
 
-      const logoHtml = school?.logo_url && school.logo_url.startsWith('http') ? `<img src="${school.logo_url}" style="height: 60px; margin-bottom: 5px;" />` : `<div style="height: 60px; width: 60px; border: 2px solid #000; display: inline-block; margin-bottom: 5px; text-align: center; line-height: 60px; font-size: 10px; color: #4A5568; font-weight: bold;">LOGO</div>`;
-      const studentName = student.users?.full_name ? student.users.full_name.toUpperCase() : 'UNKNOWN';
+      const themeColor = getSchoolThemeColor(school?.name);
+      const goldColor = '#D4AF37';
+      const logoHtml = school?.logo_url ? `<img src="${school.logo_url}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />` : `<span style="font-size:8px; font-weight:bold; color:${themeColor};">LOGO</span>`;
+      
+      const rawStudentName = student.users?.full_name || 'UNKNOWN';
+      const studentNameObj = rawStudentName.toUpperCase();
 
-      function getTraitRow(traitName: string, value: number | undefined) { const v = value || 0; return `<tr><td class="text-left">${traitName}</td><td>${v===1?'✓':''}</td><td>${v===2?'✓':''}</td><td>${v===3?'✓':''}</td><td>${v===4?'✓':''}</td><td>${v===5?'✓':''}</td></tr>`; }
-      function getSkillRow(skillName: string, value: number | undefined) { const v = value || 0; return `<tr><td class="text-left">${skillName}</td><td>${v===1?'✓':''}</td><td>${v===2?'✓':''}</td><td>${v===3?'✓':''}</td><td>${v===4?'✓':''}</td><td>${v===5?'✓':''}</td></tr>`; }
+      const verificationText = `EDUSALONE VERIFIED ACADEMIC RECORD\n----------------------------------\nSchool: ${school?.name || 'Unknown'}\nStudent: ${studentNameObj}\nAdmission No: ${student.admission_number || 'N/A'}\nClass: ${student.current_class}\nOverall Score: ${overallPercentageStr}%\n\nAuthenticity: VERIFIED ✅`;
+      const encodedQrData = encodeURIComponent(verificationText);
+      const hexColor = themeColor.replace('#', '');
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodedQrData}&color=${hexColor}&bgcolor=FFFFFF`;
+
+      function getTraitRow(traitName: string, value: number | undefined) { 
+        const v = value || 0; 
+        const cMap: any = {1:"#cc2200", 2:"#dd6600", 3:"#ddaa00", 4:"#3182CE", 5:"#38A169"};
+        let dots = "";
+        for(let i=1; i<=5; i++){
+          const active = v === i;
+          dots += `<div class="dot" style="${active ? `background:${cMap[i]};border-color:${cMap[i]};` : ""}"><span style="color:#fff;font-size:7px;">${active?'✓':''}</span></div><span style="width:2px;display:inline-block;"></span>`;
+        }
+        return `<div class="trait-row"><span class="trait-name">${traitName}</span><div class="trait-rating">${dots}</div></div>`;
+      }
+
+      function getSkillRow(skillName: string, value: number | undefined) { 
+        const v = value || 0; 
+        const cMap: any = {1:"#E53E3E", 2:"#DD6B20", 3:"#D69E2E", 4:"#3182CE", 5:"#38A169"};
+        let bars = "";
+        for(let i=1; i<=5; i++){
+          const active = v >= i && v > 0;
+          bars += `<div class="bar-seg" style="${active ? `background:${cMap[v]};border-color:${cMap[v]};` : ''}"></div>`;
+        }
+        return `<div class="skill-row"><span class="skill-name">${skillName}</span><div class="skill-bars">${bars}</div><span class="skill-score" style="color:${themeColor}">${v>0?v:'—'}</span></div>`;
+      }
 
       const htmlContent = `
-        <html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" /><style>@page { size: A4; margin: 10mm; } body { font-family: 'Times New Roman', serif; padding: 10px; color: #000; font-size: 9px; background: #FFF; } .header { text-align: center; margin-bottom: 10px; } .school-name { font-size: 24px; font-weight: 900; text-transform: uppercase; margin: 0; color: #800000; } .contact-info { font-size: 9px; margin-top: 2px; } .report-title { text-align: center; font-size: 11px; font-weight: bold; background-color: #e2e8f0; padding: 5px; border: 1px solid #000; margin-bottom: 10px; text-transform: uppercase; } table { width: 100%; border-collapse: collapse; margin-bottom: 10px; } th, td { border: 1px solid #000; padding: 2px; text-align: center; font-size: 9px; } .text-left { text-align: left; padding-left: 4px; } .font-bold { font-weight: bold; } .bg-gray { background-color: #f7fafc; } .bg-light { background-color: #fcfcfc; } .bg-dark { background-color: #e2e8f0; font-weight: bold; font-size: 9px;} .top-section { display: table; width: 100%; margin-bottom: 10px; } .top-left { display: table-cell; width: 48%; vertical-align: top; } .top-right { display: table-cell; width: 50%; vertical-align: top; padding-left: 2%; } .traits-section { display: table; width: 100%; margin-bottom: 10px; } .traits-left { display: table-cell; width: 49%; vertical-align: top; } .traits-right { display: table-cell; width: 49%; vertical-align: top; padding-left: 2%; } .comments-section { border: 1px solid #000; padding: 10px; margin-top: 10px; } .sign-line { border-bottom: 1px dotted #000; width: 150px; display: inline-block; margin-left: 5px; }</style></head>
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+        <meta charset="UTF-8"/>
+        <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+        <style>
+          @page { size: A4 portrait; margin: 10mm; } 
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 8px; background: #FFFCF5; padding: 0; width: 190mm; margin: auto; }
+          
+          .premium-wrapper { border: 5px solid ${themeColor}; padding: 15px; position: relative; background: #fff; box-shadow: inset 0 0 0 2px ${goldColor}; min-height: 270mm; overflow: hidden; }
+          .watermark { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); font-size: 80px; color: rgba(212, 175, 55, 0.05); font-weight: 900; z-index: 0; text-align: center; pointer-events: none; text-transform: uppercase; line-height: 1.2; }
+
+          .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px double ${goldColor}; padding-bottom: 8px; margin-bottom: 10px; position: relative; z-index: 10; }
+          .logo { width: 55px; height: 55px; border: 2px solid ${themeColor}; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; overflow:hidden; background: #fff; }
+          .hdr-center { text-align: center; flex: 1; padding: 0 5px; }
+          .hdr-center h1 { font-size: 16px; font-weight: 900; color: ${themeColor}; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 2px; }
+          .hdr-center .addr { font-size: 8px; color: #4A5568; margin-top: 2px; font-weight: bold; }
+          .report-title { background: linear-gradient(135deg, ${themeColor}, ${goldColor}); color: #fff; text-align: center; font-size: 11px; font-weight: 900; padding: 6px 0; margin-bottom: 8px; border-radius: 4px; letter-spacing: 1.5px; position: relative; z-index: 10; border: 1px solid ${themeColor}; }
+          
+          .top-info { display: grid; grid-template-columns: 1.3fr 1fr 1fr; border: 1.5px solid ${goldColor}; margin-bottom: 8px; border-radius: 4px; overflow: hidden; position: relative; z-index: 10; background: #fff; }
+          .info-block { border-right: 1px solid ${goldColor}; }
+          .info-block:last-child { border-right: none; }
+          .blk-header { background: ${themeColor}; color: #fff; font-weight: bold; font-size: 8px; text-align: center; padding: 3px; border-bottom: 1px solid ${goldColor}; }
+          .info-tbl { width: 100%; border-collapse: collapse; }
+          .info-tbl td { padding: 3px 4px; border-bottom: 1px solid #edf2f7; font-size: 7.5px; }
+          .info-tbl td:first-child { font-weight: bold; color: ${themeColor}; width: 40%; background: #FFFCF5; border-right: 1px solid #edf2f7; }
+          .att-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; text-align: center; height: 100%; align-content: center; }
+          .att-grid .ah { font-weight: bold; font-size: 7px; color: ${themeColor}; background: #FFFCF5; border-bottom: 1px solid #edf2f7; padding: 3px; }
+          .att-grid .av { font-size: 10px; font-weight: bold; padding: 4px; color: #2D3748; }
+          
+          .score-line { display: flex; justify-content: space-between; padding: 4px 6px; border-bottom: 1px solid #edf2f7; font-size: 8px; }
+          .score-line .sl { font-weight: bold; color: #4a5568; }
+          .score-line .sv { font-weight: 900; color: ${themeColor}; }
+          
+          .acad-tbl { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 8px; border: 1.5px solid ${goldColor}; border-radius: 4px; overflow: hidden; position: relative; z-index: 10; background: #fff; }
+          .acad-tbl th, .acad-tbl td { border: 1px solid #cbd5e0; text-align: center; padding: 3px 1px; font-size: 7px; overflow: hidden; }
+          .acad-tbl th { background: ${themeColor}; font-weight: bold; color: #FFF; border-bottom: 2px solid ${goldColor}; }
+          .acad-tbl .subj-cell { text-align: left; padding-left: 4px; font-weight: 900; font-size: 6.5px; width: 14%; color: ${themeColor}; background: #FFFCF5; border-right: 1px solid ${goldColor}; }
+          .acad-tbl tbody tr:nth-child(even) { background: #F7FAFC; }
+          
+          .g-pass { color: #3182CE; font-weight: 900; } 
+          .g-fail { color: #E53E3E; font-weight: 900; }
+          
+          .keys-bar { display: grid; grid-template-columns: repeat(5, 1fr); border: 1.5px solid ${goldColor}; margin-bottom: 8px; border-radius: 4px; overflow: hidden; position: relative; z-index: 10; }
+          .key-cell { text-align: center; padding: 4px; font-size: 6.5px; font-weight: bold; color: #fff; border-right: 1px solid rgba(255,255,255,0.3); }
+          .k-exc { background: ${themeColor}; } .k-vg { background: #4A5568; } .k-g { background: #2b6cb0; } .k-sat { background: #4299e1; } .k-fai { background: #e53e3e; border:none; }
+          
+          .bottom-section { display: grid; grid-template-columns: 1fr 1fr; border: 1.5px solid ${goldColor}; border-radius: 4px; margin-bottom: 8px; overflow: hidden; position: relative; z-index: 10; background: #fff; }
+          .bottom-panel { border-right: 1px solid ${goldColor}; }
+          .panel-header { display: flex; align-items: center; gap: 4px; background: ${themeColor}; color: #fff; padding: 4px 6px; font-weight: bold; font-size: 8px; border-bottom: 1px solid ${goldColor}; }
+          
+          .trait-row, .skill-row { display: flex; align-items: center; padding: 3px 6px; border-bottom: 1px solid #e2e8f0; min-height: 16px; }
+          .trait-row:nth-child(odd), .skill-row:nth-child(odd) { background: #FFFCF5; }
+          .trait-name, .skill-name { flex: 1; font-size: 7.5px; font-weight: bold; color: #2d3748; }
+          .trait-rating { display: flex; gap: 2px; }
+          .dot { width: 11px; height: 11px; border-radius: 50%; border: 1px solid #a0aec0; background: #fff; display: flex; align-items: center; justify-content: center; }
+          .skill-bars { display: flex; gap: 1px; align-items: center; }
+          .bar-seg { width: 14px; height: 6px; border-radius: 1px; border: 1px solid #cbd5e0; background: #edf2f7; }
+          .skill-score { font-size: 7.5px; font-weight: bold; min-width: 16px; text-align: right; margin-right: 4px; }
+          
+          .signatures-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px; margin-bottom: 10px; position: relative; z-index: 10; }
+          .sign-box { border: 1.5px solid ${goldColor}; padding: 12px; border-radius: 8px; background: #FFFCF5; }
+          .cmt-label { font-weight: 900; font-size: 8.5px; color: ${themeColor}; text-transform: uppercase; margin-bottom: 8px; border-bottom: 1px solid ${goldColor}; padding-bottom: 4px; letter-spacing: 0.5px; }
+          .cmt-value { font-size: 8.5px; font-weight: bold; font-style: italic; color: #2d3748; min-height: 35px; }
+          .sign-line { margin-top: 30px; border-top: 1px dashed ${themeColor}; width: 85%; padding-top: 4px; font-size: 8px; font-weight: bold; color: #4a5568; }
+          
+          .footer-section { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; position: relative; z-index: 10; }
+          .promotion-banner { border: 2px solid ${goldColor}; padding: 8px; text-align: center; font-weight: 900; font-size: 10px; color: #fff; background: ${themeColor}; flex: 1; margin-right: 15px; border-radius: 6px; letter-spacing: 1px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+          .qr-box { width: 60px; height: 60px; border: 2px solid ${goldColor}; padding: 2px; border-radius: 4px; background: #fff; }
+        </style>
+        </head>
         <body>
-          <div class="header">${logoHtml}<h1 class="school-name">${school?.name || 'School Name'}</h1><p class="contact-info">Motto: Knowledge & Excellence | Sierra Leone<br/>Email: admin@school.sl | Tel: +232 77 000 000</p></div>
-          <div class="report-title">2024/2025 ACADEMIC YEAR - STUDENT'S PROGRESS REPORT SHEET</div>
-          <div class="top-section">
-            <div class="top-left"><table><tr><td colspan="2" class="bg-dark text-left">STUDENT'S PERSONAL DATA</td></tr><tr><td class="text-left bg-gray" width="30%">Name</td><td class="text-left font-bold">${studentName}</td></tr><tr><td class="text-left bg-gray">Sex</td><td class="text-left font-bold">${student.gender || '-'}</td></tr><tr><td class="text-left bg-gray">Date Of Birth</td><td class="text-left">${student.date_of_birth || '-'}</td></tr><tr><td class="text-left bg-gray">Form</td><td class="text-left">${student.current_class}</td></tr><tr><td class="text-left bg-gray">Admission No.</td><td class="text-left">${student.admission_number}</td></tr><tr><td class="text-left bg-gray">Class Teacher</td><td class="text-left">Assigned Staff</td></tr></table></div>
-            <div class="top-right"><table><tr><td colspan="3" class="bg-dark">ATTENDANCE</td></tr><tr><td class="bg-gray">Late</td><td class="bg-gray">Present</td><td class="bg-gray">Absent</td></tr><tr><td class="font-bold">${lateCount}</td><td class="font-bold">${presentCount}</td><td class="font-bold">${absentCount}</td></tr></table><table style="margin-top: 5px;"><tr><td class="bg-gray text-left" colspan="2">TOTAL SCORE OBTAINABLE</td><td colspan="2" class="font-bold">${maxPossibleGrandTotal}</td></tr><tr><td class="bg-gray text-left" colspan="2">TOTAL SCORE OBTAINED</td><td colspan="2" class="font-bold">${grandTotalScore}</td></tr><tr><td class="bg-gray text-left" colspan="2">AVERAGE PERCENTAGE</td><td colspan="2" class="font-bold">${overallPercentageStr}%</td></tr><tr><td class="bg-gray text-left" width="25%">No. in Class</td><td class="font-bold" width="25%">40</td><td class="bg-gray text-left" width="25%">Position</td><td class="font-bold" width="25%">-</td></tr></table></div>
+          <div class="premium-wrapper">
+            <div class="watermark">${school?.name || 'EDUSALONE'}<br/>${school?.school_code || 'VERIFIED'}<br/>OFFICIAL</div>
+            
+            <div class="header">
+              <div class="logo">${logoHtml}</div>
+              <div class="hdr-center">
+                <h1>${school?.name || 'School Name'}</h1>
+                <p class="addr">Sierra Leone's Premier Institution</p>
+                <p class="motto" style="color:${goldColor}; font-style:italic;">Knowledge, Courage & Excellence</p>
+              </div>
+              <div class="logo">${logoHtml}</div>
+            </div>
+            
+            <div class="report-title">${(student.current_class || '').toUpperCase().includes('JSS') ? 'JUNIOR SECONDARY SCHOOL' : 'SENIOR SECONDARY SCHOOL'} — PROGRESS REPORT 2024/2025</div>
+            
+            <div class="top-info">
+              <div class="info-block">
+                <div class="blk-header">STUDENT'S PERSONAL DATA</div>
+                <table class="info-tbl">
+                  <tr><td>Name</td><td style="font-weight:900;">${student.users?.full_name?.toUpperCase() || 'UNKNOWN'}</td></tr>
+                  <tr><td>Sex</td><td>${student.gender || '-'}</td></tr>
+                  <tr><td>Date of Birth</td><td>${student.date_of_birth || '-'}</td></tr>
+                  <tr><td>Form</td><td style="font-weight:bold;">${student.current_class}</td></tr>
+                  <tr><td>Admission No.</td><td style="color:${themeColor}; font-weight:bold;">${student.admission_number}</td></tr>
+                </table>
+              </div>
+              <div class="info-block">
+                <div class="blk-header">ATTENDANCE</div>
+                <div class="att-grid">
+                  <div class="ah">Late</div><div class="ah">Present</div><div class="ah">Absent</div>
+                  <div class="av">${lateCount}</div><div class="av" style="color:#38A169;">${presentCount}</div><div class="av" style="color:#E53E3E;">${absentCount}</div>
+                </div>
+              </div>
+              <div class="info-block score-blk" style="border-right:none;">
+                <div class="blk-header">SCORE SUMMARY</div>
+                <div class="score-line"><span class="sl">Total Obtainable</span><span class="sv">${maxPossibleGrandTotal}</span></div>
+                <div class="score-line"><span class="sl">Total Obtained</span><span class="sv">${grandTotalScore}</span></div>
+                <div class="score-line"><span class="sl" style="color:${themeColor}; font-weight:900;">Average Pct</span><span class="sv" style="font-size:10px;">${overallPercentageStr}%</span></div>
+                <div class="score-line"><span class="sl">Class Position</span><span class="sv">${student.overall_rank || 'N/A'}</span></div>
+                <div class="score-line"><span class="sl">Exam Board</span><span class="sv">${(student.current_class||'').toUpperCase().includes('JSS') ? 'BECE/WAEC' : 'WASSCE/WAEC'}</span></div>
+              </div>
+            </div>
+            
+            <table class="acad-tbl">
+              <colgroup>
+                <col style="width:16%"><col style="width:3%">
+                <col style="width:2.5%"><col style="width:2.5%"><col style="width:2.5%"><col style="width:3.5%"><col style="width:3.5%"><col style="width:2.5%">
+                <col style="width:2.5%"><col style="width:2.5%"><col style="width:2.5%"><col style="width:3.5%"><col style="width:3.5%"><col style="width:2.5%">
+                <col style="width:2.5%"><col style="width:2.5%"><col style="width:2.5%"><col style="width:3.5%"><col style="width:3.5%"><col style="width:2.5%">
+                <col style="width:4%"><col style="width:4%"><col style="width:3%"><col style="width:4%"><col style="width:15%">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th rowspan="2" class="subj-cell" style="color:#fff; background:${themeColor}; border-right:1px solid #fff;">SUBJECT</th><th rowspan="2">MAX</th>
+                  <th colspan="6" style="border-left: 2px solid ${goldColor};">FIRST TERM</th><th colspan="6" style="border-left: 2px solid ${goldColor};">SECOND TERM</th><th colspan="6" style="border-left: 2px solid ${goldColor};">THIRD TERM</th><th colspan="5" style="border-left: 2px solid ${goldColor};">YEARLY SUMMARY</th>
+                </tr>
+                <tr>
+                  <th style="border-left: 2px solid ${goldColor};">T1</th><th>T2</th><th>EX</th><th>TOT</th><th>MN</th><th>RNK</th>
+                  <th style="border-left: 2px solid ${goldColor};">T3</th><th>T4</th><th>EX</th><th>TOT</th><th>MN</th><th>RNK</th>
+                  <th style="border-left: 2px solid ${goldColor};">T5</th><th>T6</th><th>EX</th><th>TOT</th><th>MN</th><th>RNK</th>
+                  <th style="border-left: 2px solid ${goldColor};">TOT</th><th>MEAN</th><th>RNK</th><th>GRD</th><th>REM</th>
+                </tr>
+              </thead>
+              <tbody>${gradesHtml}</tbody>
+            </table>
+            
+            <div class="keys-bar">
+              ${(student.current_class || '').toUpperCase().includes('JSS') ? `
+                <div class="key-cell k-exc">75–100: Grd 1 EXCELLENT</div>
+                <div class="key-cell k-vg">65–74: Grd 2 V.GOOD</div>
+                <div class="key-cell k-g">45–64: Grd 3/4 CREDIT</div>
+                <div class="key-cell k-sat">35–44: Grd 5 PASS</div>
+                <div class="key-cell k-fai">0–34: Grd 6 FAIL</div>
+              ` : `
+                <div class="key-cell k-exc">75–100: A1 EXCELLENT</div>
+                <div class="key-cell k-vg">65–74: B2/B3 GOOD</div>
+                <div class="key-cell k-g">50–64: C4–C6 CREDIT</div>
+                <div class="key-cell k-sat">40–49: D7/E8 PASS</div>
+                <div class="key-cell k-fai">0–39: F9 FAIL</div>
+              `}
+            </div>
+            
+            <div class="bottom-section">
+              <div class="bottom-panel">
+                <div class="panel-header">AFFECTIVE TRAITS</div>
+                ${getTraitRow('Attentiveness', ev?.attentiveness)}${getTraitRow('Attitude to Work', ev?.attitude)}${getTraitRow('Cooperation', ev?.cooperation)}${getTraitRow('Neatness', ev?.neatness)}${getTraitRow('Politeness', ev?.politeness)}${getTraitRow('Punctuality', ev?.punctuality)}
+              </div>
+              <div class="bottom-panel" style="border-right:none;">
+                <div class="panel-header">PSYCHOMOTOR SKILLS</div>
+                ${getSkillRow('Drawing & Painting', ev?.drawing_painting)}
+                ${getSkillRow('Handling of Tools', ev?.handling_tools)}
+                ${getSkillRow('Games & Sports', ev?.games)}
+                ${getSkillRow('Handwriting', ev?.handwriting)}
+                ${getSkillRow('Music', ev?.music)}
+                ${getSkillRow('Verbal Fluency', ev?.verbal_fluency)}
+              </div>
+            </div>
+            
+            <div class="signatures-grid">
+              <div class="sign-box">
+                <div class="cmt-label">Teacher's Remarks</div>
+                <div class="cmt-value">${ev?.teacher_comment || 'No comments provided for this term.'}</div>
+                <div class="sign-line">Sign & Date: _________________________</div>
+              </div>
+              <div class="sign-box">
+                <div class="cmt-label">Principal's Remarks</div>
+                <div class="cmt-value"></div>
+                <div class="sign-line">Sign & Stamp: _________________________</div>
+              </div>
+            </div>
+            
+            <div class="footer-section">
+              <div class="promotion-banner">PROMOTION STATUS: ${ev?.promotion_status || 'PENDING'}</div>
+              <img src="${qrCodeUrl}" class="qr-box" />
+            </div>
+            
+            <div style="text-align:center; font-size:7px; color:#A0AEC0; margin-top:8px; font-style:italic; border-top: 1px solid #E2E8F0; padding-top: 4px; z-index:10; position:relative;">
+              Official Digital Document • Securely Generated by EduSalone on ${new Date().toLocaleString()} • Any physical or digital alteration invalidates this statement.
+            </div>
           </div>
-          <table><tr><td colspan="25" class="bg-dark">ACADEMIC PERFORMANCE</td></tr><tr><th rowspan="2" class="text-left" width="12%">SUBJECT</th><th rowspan="2" width="4%">MAX</th><th colspan="6" class="bg-dark">FIRST TERM</th><th colspan="6" class="bg-dark">SECOND TERM</th><th colspan="6" class="bg-dark">THIRD TERM</th><th colspan="5" class="bg-dark">YEARLY</th></tr><tr><th>T1</th><th>T2</th><th>EX</th><th>TOT</th><th>MN</th><th>RNK</th><th>T3</th><th>T4</th><th>EX</th><th>TOT</th><th>MN</th><th>RNK</th><th>T5</th><th>T6</th><th>EX</th><th>TOT</th><th>MN</th><th>RNK</th><th>TOTAL</th><th>MEAN</th><th>RNK</th><th>GRADE</th><th>REMARKS</th></tr>${gradesHtml}</table>
-          <table style="margin-bottom: 10px;"><tr><td colspan="5" class="bg-dark">KEYS TO RATING / GRADING SCALE</td></tr><tr class="bg-gray"><td>80-100 (EXCELLENT)</td><td>70-79 (V. GOOD)</td><td>60-69 (GOOD)</td><td>50-59 (SATISFACTORY)</td><td>0-49 (FAIL)</td></tr></table>
-          <div class="traits-section"><div class="traits-left"><table><tr><td colspan="6" class="bg-dark">AFFECTIVE TRAITS</td></tr><tr class="bg-gray"><td class="text-left">Traits</td><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td></tr>${getTraitRow('Attentiveness', ev?.attentiveness)}${getTraitRow('Attitude to School work', ev?.attitude)}${getTraitRow('Cooperation with others', ev?.cooperation)}${getTraitRow('Neatness', ev?.neatness)}${getTraitRow('Politeness', ev?.politeness)}${getTraitRow('Punctuality', ev?.punctuality)}</table></div><div class="traits-right"><table><tr><td colspan="6" class="bg-dark">PSYCHOMOTOR SKILLS</td></tr><tr class="bg-gray"><td class="text-left">Skills</td><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td></tr>${getSkillRow('Handwriting', ev?.handwriting)}${getSkillRow('Verbal Fluency', ev?.verbal_fluency)}${getSkillRow('Games / Sports', ev?.games)}</table><table style="margin-top: 5px;"><tr><td colspan="2" class="bg-dark">KEYS TO RATING</td></tr><tr><td class="text-left">1 - Very Poor<br/>2 - Poor<br/>3 - Fair</td><td class="text-left">4 - Good<br/>5 - Excellent</td></tr></table></div></div>
-          <div class="comments-section"><div style="float: left; width: 75%;"><p><strong>Form Teacher's Comments:</strong> <u>${ev?.teacher_comment || 'No comment entered yet.'}</u> &nbsp; Sign: <span class="sign-line"></span></p><p><strong>Principal's Comments:</strong> <span class="sign-line"></span> &nbsp; Date: <u>${new Date().toLocaleDateString()}</u></p><p style="margin-top: 15px; font-size: 13px;"><strong>Promotion Status:</strong> <span style="border: 1px solid #000; padding: 4px 10px; font-weight:bold; text-transform:uppercase;">${ev?.promotion_status || 'PENDING'}</span></p></div><div style="float: right; width: 20%; text-align: center;"><div style="border: 2px dashed #000; height: 80px; width: 100%; display: inline-block; padding-top: 30px; color: #000; font-weight: bold;">OFFICIAL<br/>STAMP</div></div><div style="clear: both;"></div></div>
-        </body></html>
+        </body>
+        </html>
       `;
 
       if (Platform.OS === 'web') {
         const printWindow = window.open('', '_blank');
-        if (printWindow) { printWindow.document.write(htmlContent); printWindow.document.close(); setTimeout(() => { printWindow.print(); }, 500); }
+        if (printWindow) { printWindow.document.write(htmlContent); printWindow.document.close(); setTimeout(() => printWindow.print(), 500); }
       } else {
         const { uri } = await Print.printToFileAsync({ html: htmlContent });
         await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
       }
-    } catch (error: any) { Alert.alert('Error', 'Could not generate PDF: ' + error.message); }
+    } catch (err: any) {
+      Alert.alert('Error', 'Could not generate Roster PDF.');
+    }
     setPrintingId(null);
   }
 
-  // --- RENDER UI ---
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
+      <Modal visible={showBulkModal} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={{ fontSize: 18, fontWeight: '900', color: '#1A365D', marginBottom: 5 }}>Bulk Upload via Excel</Text>
+            <Text style={{ fontSize: 12, color: '#718096', marginBottom: 15 }}>Copy rows from Excel and Paste below. Format MUST be:</Text>
+            <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#E53E3E', marginBottom: 10 }}>Name | ADM_NO | Class | Gender | DOB</Text>
+            
+            <TextInput 
+              multiline 
+              style={styles.bulkInput} 
+              value={bulkText} 
+              onChangeText={setBulkText} 
+              placeholder="John Doe&#9;ADM001&#9;JSS1&#9;Male&#9;12/05/2010&#10;Jane Smith&#9;ADM002&#9;JSS1&#9;Female&#9;10/02/2011" 
+            />
+            
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 15 }}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowBulkModal(false)}>
+                <Text style={{ fontWeight: 'bold', color: '#4A5568' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.uploadBtn} onPress={handleBulkUpload} disabled={bulkLoading}>
+                {bulkLoading ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Start Upload</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <FlatList
         data={students}
         keyExtractor={(item) => item.id}
@@ -245,7 +631,6 @@ export default function StudentsScreen() {
         ListHeaderComponent={
           <View>
             <Text style={styles.headerTitle}>Student Management</Text>
-            
             <View style={styles.schoolSelectorContainer}>
               <Text style={styles.selectorLabel}>ACTIVE SCHOOL:</Text>
               <View style={styles.schoolChipActive}>
@@ -253,49 +638,14 @@ export default function StudentsScreen() {
               </View>
             </View>
 
-            {/* 📅 PRINT ATTENDANCE CARD */}
             <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Print Attendance Sheet</Text>
-              <Text style={{ fontSize: 12, color: '#718096', marginBottom: 15 }}>Generate a printable A4 monthly register.</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={styles.sectionTitle}>Enroll New Student</Text>
+                <TouchableOpacity style={{ backgroundColor: '#EBF8FF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} onPress={() => setShowBulkModal(true)}>
+                  <Text style={{ color: '#3182CE', fontWeight: 'bold', fontSize: 12 }}>+ Bulk Upload</Text>
+                </TouchableOpacity>
+              </View>
               
-              <View style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>Class</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    {classOptions.map(c => (
-                      <TouchableOpacity key={c} style={[styles.chip, attClass === c && styles.chipActive]} onPress={() => setAttClass(c)}>
-                        <Text style={[styles.chipText, attClass === c && styles.chipTextActive]}>{c}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              </View>
-
-              <View style={[styles.row, { marginTop: 15 }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>Month</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    {monthOptions.map(m => (
-                      <TouchableOpacity key={m.num} style={[styles.chip, attMonth === m.num && styles.chipActive]} onPress={() => setAttMonth(m.num)}>
-                        <Text style={[styles.chipText, attMonth === m.num && styles.chipTextActive]}>{m.name.substring(0,3)}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              </View>
-
-              <TouchableOpacity style={[styles.primaryButton, { backgroundColor: '#3182CE', marginTop: 15, flexDirection: 'row', justifyContent: 'center' }]} onPress={generateAttendancePDF} disabled={generatingAtt}>
-                {generatingAtt ? <ActivityIndicator color="#FFF" /> : (
-                  <>
-                    <Ionicons name="print" size={20} color="#FFF" style={{ marginRight: 8 }} />
-                    <Text style={styles.primaryButtonText}>Print Class Register</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Enroll New Student</Text>
               <TextInput style={styles.input} placeholder="Student Full Name" placeholderTextColor="#A0AEC0" value={fullName} onChangeText={setFullName} />
               <View style={styles.row}>
                 <TextInput style={[styles.input, styles.halfInput]} placeholder="Admission #" placeholderTextColor="#A0AEC0" value={admissionNumber} onChangeText={setAdmissionNumber} autoCapitalize="none" />
@@ -313,7 +663,61 @@ export default function StudentsScreen() {
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.listTitle}>Enrolled Students ({students.length})</Text>
+            {/* 📚 PUBLISH BY CLASS SECTION */}
+            {students.length > 0 && (
+              <View style={{ marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                  <Ionicons name="school-outline" size={18} color="#1A365D" />
+                  <Text style={[styles.sectionTitle, { marginLeft: 8, marginBottom: 0, fontSize: 15, color: '#1A365D' }]}>
+                    Publish Report Cards by Class
+                  </Text>
+                </View>
+                {[...new Set(students.map((s: any) => s.current_class).filter(Boolean))].sort().map((cls: any) => {
+                  const clsStudents = students.filter((s: any) => s.current_class === cls);
+                  const publishedCount = clsStudents.filter((s: any) => s.report_published).length;
+                  const allPublished = publishedCount === clsStudents.length && clsStudents.length > 0;
+                  const nonePublished = publishedCount === 0;
+                  return (
+                    <View key={cls} style={styles.classPublishRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.classPublishName}>{cls}</Text>
+                        <Text style={styles.classPublishSub}>{publishedCount} of {clsStudents.length} published</Text>
+                      </View>
+                      <View style={[styles.classStatusDot, {
+                        backgroundColor: allPublished ? '#C6F6D5' : nonePublished ? '#FED7D7' : '#FEEBC8'
+                      }]}>
+                        <Text style={{ fontSize: 9, fontWeight: '900', color: allPublished ? '#22543D' : nonePublished ? '#C53030' : '#744210' }}>
+                          {allPublished ? 'ALL ✅' : nonePublished ? 'NONE 🔒' : 'PARTIAL 🟡'}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={[styles.classPublishBtn, { backgroundColor: allPublished ? '#E53E3E' : '#1A365D' }]}
+                        onPress={() => publishByClass(cls, !allPublished)}
+                        disabled={publishingClass === cls}
+                      >
+                        {publishingClass === cls
+                          ? <ActivityIndicator size="small" color="#FFF" />
+                          : <Text style={styles.classPublishBtnText}>{allPublished ? 'UNPUBLISH ALL' : 'PUBLISH ALL'}</Text>
+                        }
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginLeft: 4 }}>
+              <Text style={styles.listTitle}>Enrolled Students ({students.length})</Text>
+              <TouchableOpacity 
+                style={{ backgroundColor: '#2B6CB0', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}
+                onPress={generateMasterRosterPDF}
+                disabled={printingRoster}
+              >
+                {printingRoster ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="print" size={16} color="#FFF" />}
+                <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 12, marginLeft: 6 }}>Print Roster</Text>
+              </TouchableOpacity>
+            </View>
+
             {fetching && <ActivityIndicator size="large" color="#3182CE" style={{ marginTop: 20 }} />}
           </View>
         }
@@ -323,9 +727,20 @@ export default function StudentsScreen() {
               <Text style={styles.studentName}>{item.users?.full_name || 'Unknown Name'}</Text>
               <Text style={styles.studentDetails}>{item.current_class} | {item.admission_number}</Text>
             </View>
-            <TouchableOpacity style={styles.printButton} onPress={() => generatePDFReportCard(item)} disabled={printingId === item.id}>
-              {printingId === item.id ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.printButtonText}>PDF Report</Text>}
+
+            {/* 🌟 NEW: PUBLISH REPORT CARD TOGGLE */}
+            <TouchableOpacity 
+              style={[styles.publishBtn, { backgroundColor: item.report_published ? '#38A169' : '#718096' }]} 
+              onPress={() => togglePublishReport(item.id, item.report_published, item.users?.full_name)}
+              disabled={publishingId === item.id}
+            >
+              {publishingId === item.id ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.publishBtnText}>{item.report_published ? 'PUBLISHED ✅' : 'PUBLISH'}</Text>}
             </TouchableOpacity>
+
+            <TouchableOpacity style={styles.printButton} onPress={() => generatePDFReportCard(item)} disabled={printingId === item.id}>
+              {printingId === item.id ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.printButtonText}>PDF</Text>}
+            </TouchableOpacity>
+
             <TouchableOpacity onPress={() => Alert.alert('Delete Student?', `Remove ${item.users?.full_name}?`,[{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => deleteStudent(item.user_id) }])} style={styles.deleteButton}>
               <Ionicons name="trash-outline" size={22} color="#E53E3E" />
             </TouchableOpacity>
@@ -350,10 +765,6 @@ const styles = StyleSheet.create({
   input: { backgroundColor: '#EDF2F7', borderRadius: 10, padding: 14, fontSize: 16, marginBottom: 12, color: '#2D3748' },
   row: { flexDirection: 'row', gap: 10 },
   halfInput: { flex: 1 },
-  chip: { backgroundColor: '#EDF2F7', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginRight: 10 },
-  chipActive: { backgroundColor: '#3182CE' },
-  chipText: { color: '#4A5568', fontWeight: 'bold', fontSize: 12 },
-  chipTextActive: { color: '#FFFFFF' },
   genderBtn: { flex: 1, backgroundColor: '#EDF2F7', borderRadius: 8, padding: 8, alignItems: 'center', borderWidth: 1, borderColor: '#E2E8F0', justifyContent: 'center' },
   genderBtnActive: { backgroundColor: '#3182CE', borderColor: '#3182CE' },
   genderText: { color: '#4A5568', fontWeight: 'bold', fontSize: 14 },
@@ -364,8 +775,21 @@ const styles = StyleSheet.create({
   studentItem: { backgroundColor: '#FFFFFF', padding: 16, borderRadius: 10, marginBottom: 10, flexDirection: 'row', alignItems: 'center', borderLeftWidth: 4, borderLeftColor: '#3182CE' },
   studentName: { fontSize: 16, fontWeight: 'bold', color: '#2D3748' },
   studentDetails: { fontSize: 12, color: '#718096', marginTop: 4, fontWeight: 'bold' },
-  printButton: { backgroundColor: '#DD6B20', paddingHorizontal: 15, paddingVertical: 12, borderRadius: 8, marginRight: 5 },
-  printButtonText: { color: '#FFF', fontWeight: '900', fontSize: 13, textTransform: 'uppercase' },
+  publishBtn: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 6, marginRight: 5, justifyContent: 'center', alignItems: 'center' },
+  publishBtnText: { color: '#FFF', fontWeight: '900', fontSize: 10, textTransform: 'uppercase' },
+  printButton: { backgroundColor: '#DD6B20', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 6, marginRight: 5, justifyContent: 'center', alignItems: 'center' },
+  printButtonText: { color: '#FFF', fontWeight: '900', fontSize: 10, textTransform: 'uppercase' },
   deleteButton: { padding: 5 },
-  emptyText: { textAlign: 'center', color: '#A0AEC0', marginTop: 20, fontStyle: 'italic', fontSize: 15, fontWeight: 'bold' }
+  classPublishRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', padding: 14, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: '#E2E8F0', elevation: 1 },
+  classPublishName: { fontSize: 14, fontWeight: '900', color: '#1A365D' },
+  classPublishSub: { fontSize: 11, color: '#718096', marginTop: 2 },
+  classStatusDot: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, marginRight: 8 },
+  classPublishBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, minWidth: 112, alignItems: 'center' },
+  classPublishBtnText: { color: '#FFF', fontWeight: '900', fontSize: 10, textTransform: 'uppercase' },
+  emptyText: { textAlign: 'center', color: '#A0AEC0', marginTop: 20, fontStyle: 'italic', fontSize: 15, fontWeight: 'bold' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
+  modalContent: { backgroundColor: '#FFF', padding: 20, borderRadius: 16, shadowColor: '#000', elevation: 5 },
+  bulkInput: { height: 180, backgroundColor: '#F7FAFC', borderWidth: 1, borderColor: '#E2E8F0', padding: 15, textAlignVertical: 'top', borderRadius: 8, fontSize: 13 },
+  cancelBtn: { flex: 1, padding: 15, backgroundColor: '#E2E8F0', borderRadius: 8, alignItems: 'center' },
+  uploadBtn: { flex: 1, padding: 15, backgroundColor: '#38A169', borderRadius: 8, alignItems: 'center' }
 });

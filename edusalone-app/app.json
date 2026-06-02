@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "edusalone",
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -13,15 +14,49 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.palmtech.edusalone"
+      "bundleIdentifier": "com.palmtech.edusalone",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow EduSalone to take photos for chat and profiles.",
+        "NSPhotoLibraryUsageDescription": "Allow EduSalone to access your photos for chat attachments.",
+        "NSMicrophoneUsageDescription": "Allow EduSalone to record voice notes for chat messages."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#1A365D"
       },
-      "package": "com.palmtech.edusalone"
+      "package": "com.palmtech.edusalone",
+      "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "RECORD_AUDIO",
+        "VIBRATE",
+        "MODIFY_AUDIO_SETTINGS"
+      ]
     },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allow EduSalone to take photos for chat.",
+          "photosPermission": "Allow EduSalone to access your photos."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow EduSalone to record voice notes."
+        }
+      ],
+      "expo-notifications",
+      "expo-audio",
+      "expo-video"
+    ],
     "extra": {
       "eas": {
         "projectId": "e91f508c-2d77-4ff4-a87c-dcf02deee385"

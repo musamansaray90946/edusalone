@@ -1,27 +1,43 @@
+import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { supabase } from '../../src/lib/supabase';
+import { supabase } from '../../src/lib/supabase'; // Make sure path matches your project!
 
 export default function FeesScreen() {
-  const[amountSLL, setAmountSLL] = useState('');
+  const [amountSLL, setAmountSLL] = useState('');
   const [expectedFeeInput, setExpectedFeeInput] = useState('');
-  const[paymentMethod, setPaymentMethod] = useState('Cash'); 
+  const [paymentMethod, setPaymentMethod] = useState('Cash'); 
   
   const [school, setSchool] = useState<any>(null);
   const [students, setStudents] = useState<any[]>([]);
-  const[selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
+  
+  // 🌟 FEATURE 3: NEWS STATE
+  const [news, setNews] = useState<any[]>([]);
+
   const [loading, setLoading] = useState(false);
-  const[fetching, setFetching] = useState(true);
+  const [fetching, setFetching] = useState(true);
   const [printingId, setPrintingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'ALL' | 'UNPAID' | 'PARTIAL' | 'PAID'>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
 
-  const paymentOptions =['Cash', 'Orange Money', 'Afrimoney', 'Bank Transfer'];
+  const paymentOptions = ['Cash', 'Orange Money', 'Afrimoney', 'Bank Transfer'];
 
   useEffect(() => { loadInitialData(); },[]);
-  useEffect(() => { if (school) { fetchStudents(); fetchTransactions(); setSelectedStudentId(null); } },[school]);
+  
+  // 🌟 FEATURE 3: ADDED fetchNews() to the school useEffect
+  useEffect(() => { 
+    if (school) { 
+      fetchStudents(); 
+      fetchTransactions(); 
+      fetchNews(); 
+      setSelectedStudentId(null); 
+    } 
+  }, [school]);
 
   async function loadInitialData() {
     setFetching(true);
@@ -38,15 +54,45 @@ export default function FeesScreen() {
   }
 
   async function fetchStudents() {
-    const { data } = await supabase.from('students').select('id, admission_number, current_class, expected_fee, users!user_id(full_name)').eq('school_id', school.id).order('created_at', { ascending: false });
+    const { data } = await supabase
+      .from('students')
+      .select('id, admission_number, current_class, expected_fee, date_of_birth, created_at, users!user_id(full_name, phone_number)')
+      .eq('school_id', school.id)
+      .order('created_at', { ascending: false });
     if (data) setStudents(data);
   }
 
   async function fetchTransactions() {
     setFetching(true);
-    const { data } = await supabase.from('fee_transactions').select('*, students!student_id(admission_number, current_class, users!user_id(full_name))').eq('school_id', school.id).order('payment_date', { ascending: false });
+    const { data } = await supabase
+      .from('fee_transactions')
+      .select('*, students!student_id(admission_number, current_class, users!user_id(full_name))')
+      .eq('school_id', school.id)
+      .order('payment_date', { ascending: false });
     if (data) setTransactions(data);
     setFetching(false);
+  }
+
+  // 🌟 FEATURE 3: FETCH BROADCASTS FUNCTION
+  async function fetchNews() {
+    const { data } = await supabase
+      .from('school_news')
+      .select('*')
+      .eq('school_id', school.id)
+      .order('created_at', { ascending: false })
+      .limit(5); // Keep it clean by only showing the 5 most recent notices
+    if (data) setNews(data);
+  }
+
+  async function deleteTransaction(transactionId: string) {
+    Alert.alert('Delete Transaction', 'Are you sure? This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.from('fee_transactions').delete().eq('id', transactionId);
+        if (error) Alert.alert('Error', 'Could not delete.');
+        else fetchTransactions();
+      }}
+    ]);
   }
 
   async function updateExpectedFee() {
@@ -70,77 +116,10 @@ export default function FeesScreen() {
     else { Alert.alert('Success!', `Receipt ${receiptNum} generated.`); setAmountSLL(''); fetchTransactions(); }
   }
 
-  // ==========================================
-  // 🖨️ WEB & MOBILE SAFE PDF RECEIPT
-  // ==========================================
-  async function generateReceiptPDF(transaction: any) {
-    setPrintingId(transaction.id);
-    try {
-      const amountFormatted = "SLL " + transaction.amount_paid_sll.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-      const dateFormatted = new Date(transaction.payment_date).toLocaleDateString();
-      const studentName = transaction.students?.users?.full_name?.toUpperCase() || 'UNKNOWN';
-      const studentClass = transaction.students?.current_class || 'N/A';
-      const studentAdm = transaction.students?.admission_number || 'N/A';
-      
-      const logoHtml = school?.logo_url && school.logo_url.startsWith('http') ? `<img src="${school.logo_url}" style="height: 80px; margin-bottom: 10px;" />` : `<div style="height: 80px; width: 80px; border: 2px solid #1A365D; display: inline-block; margin-bottom: 10px; text-align: center; line-height: 80px; font-weight: bold; color:#1A365D;">LOGO</div>`;
-
-      const htmlContent = `
-        <html>
-          <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
-            <style>
-              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; color: #2D3748; background: #FFF; }
-              .receipt-container { border: 2px solid #E2E8F0; border-radius: 12px; padding: 30px; max-width: 600px; margin: 0 auto; }
-              .header { text-align: center; border-bottom: 2px solid #1A365D; padding-bottom: 20px; margin-bottom: 20px; }
-              .school-name { font-size: 28px; font-weight: 900; color: #1A365D; text-transform: uppercase; margin: 0; }
-              .receipt-title { font-size: 20px; font-weight: bold; color: #38A169; margin-top: 10px; letter-spacing: 2px; }
-              .info-row { display: flex; justify-content: space-between; margin-bottom: 15px; border-bottom: 1px solid #EDF2F7; padding-bottom: 10px; }
-              .label { font-size: 12px; color: #718096; text-transform: uppercase; font-weight: bold; }
-              .value { font-size: 16px; font-weight: bold; color: #1A365D; }
-              .amount-box { background-color: #F0FFF4; border: 2px solid #38A169; border-radius: 8px; padding: 20px; text-align: center; margin: 30px 0; }
-              .amount-text { font-size: 32px; font-weight: 900; color: #22543D; margin: 0; }
-              .footer { margin-top: 50px; display: flex; justify-content: space-between; }
-              .sign-line { border-top: 1px solid #000; width: 200px; text-align: center; padding-top: 5px; font-weight: bold; font-size: 12px; }
-            </style>
-          </head>
-          <body>
-            <div class="receipt-container">
-              <div class="header">
-                ${logoHtml}
-                <h1 class="school-name">${school?.name || 'School Name'}</h1>
-                <div class="receipt-title">OFFICIAL FEE RECEIPT</div>
-              </div>
-              <div class="info-row"><div><div class="label">Receipt Number</div><div class="value">${transaction.receipt_number}</div></div><div style="text-align:right;"><div class="label">Date</div><div class="value">${dateFormatted}</div></div></div>
-              <div class="info-row"><div><div class="label">Student Name</div><div class="value">${studentName}</div></div><div style="text-align:right;"><div class="label">Class / Admission</div><div class="value">${studentClass} | ${studentAdm}</div></div></div>
-              <div class="info-row"><div><div class="label">Payment Method</div><div class="value">${transaction.payment_method}</div></div></div>
-              <div class="amount-box"><div class="label" style="margin-bottom:5px;">Amount Paid</div><h2 class="amount-text">${amountFormatted}</h2></div>
-              <div class="footer"><div class="sign-line">Authorized Signature</div><div class="sign-line">Official Stamp</div></div>
-            </div>
-          </body>
-        </html>
-      `;
-
-      // 🚨 THE FIX: Open a new window for Web Printing so it doesn't print the dashboard!
-      if (Platform.OS === 'web') {
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {
-          printWindow.document.write(htmlContent);
-          printWindow.document.close();
-          setTimeout(() => { printWindow.print(); }, 500); // Wait half a second for styles to load
-        } else {
-          Alert.alert('Popup Blocked', 'Please allow popups to print receipts.');
-        }
-      } else {
-        const { uri } = await Print.printToFileAsync({ html: htmlContent });
-        await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
-      }
-    } catch (error: any) { Alert.alert('System Error', 'Failed to generate Receipt: ' + error.message); }
-    setPrintingId(null);
+  function formatCurrency(amount: number) { 
+    return "SLL " + amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ","); 
   }
 
-  function formatCurrency(amount: number) { return "SLL " + amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
-
-  // --- LEDGER LOGIC ---
   const studentLedgers = students.map(student => {
     const studentPayments = transactions.filter(t => t.student_id === student.id);
     const totalPaid = studentPayments.reduce((sum, t) => sum + Number(t.amount_paid_sll), 0);
@@ -161,10 +140,268 @@ export default function FeesScreen() {
   const globalCollected = studentLedgers.reduce((sum, s) => sum + s.totalPaid, 0);
   const globalOutstanding = globalExpected - globalCollected;
 
+  async function generateMasterLedgerPDF() {
+    setPrintingId('master');
+    try {
+      const logoHtml = school?.logo_url && school.logo_url.startsWith('http') 
+        ? `<img src="${school.logo_url}" style="height: 70px; margin-bottom: 10px;" />` 
+        : `<div style="height: 70px; width: 70px; border: 2px solid #1A365D; display: inline-block; margin-bottom: 10px; text-align: center; line-height: 70px; font-weight: bold; color:#1A365D; border-radius: 50%;">LOGO</div>`;
+
+      let tableRows = '';
+      
+      studentLedgers.forEach((std, index) => {
+        const phone = std.users?.phone_number || 'N/A';
+        const dob = std.date_of_birth || 'N/A';
+        const enrolledYear = std.created_at ? new Date(std.created_at).getFullYear() : 'N/A';
+        const statusColor = std.status === 'PAID' ? '#38A169' : std.status === 'PARTIAL' ? '#DD6B20' : '#E53E3E';
+
+        tableRows += `
+          <tr>
+            <td>${index + 1}</td>
+            <td style="font-weight: bold; color: #2D3748;">${std.admission_number}</td>
+            <td style="text-align: left; font-weight: 900; color: #1A365D;">${std.users?.full_name || 'Unknown'}</td>
+            <td>${dob}</td>
+            <td>${std.current_class}</td>
+            <td>${phone}</td>
+            <td>${enrolledYear}</td>
+            <td style="font-weight: bold;">${formatCurrency(std.expected)}</td>
+            <td style="color: #38A169; font-weight: 900;">${formatCurrency(std.totalPaid)}</td>
+            <td style="color: ${statusColor}; font-weight: 900;">${formatCurrency(std.balance)}</td>
+            <td style="color: ${statusColor}; font-weight: bold;">${std.status}</td>
+          </tr>
+        `;
+      });
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <style>
+              @page { size: A4 landscape; margin: 10mm; }
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #2D3748; background: #FFF; font-size: 10px; }
+              .header { text-align: center; border-bottom: 3px solid #1A365D; padding-bottom: 15px; margin-bottom: 20px; }
+              .school-name { font-size: 26px; font-weight: 900; color: #1A365D; text-transform: uppercase; margin: 5px 0; }
+              .report-title { font-size: 14px; font-weight: bold; color: #4A5568; letter-spacing: 1px; margin-bottom: 5px; }
+              table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+              th, td { border: 1px solid #CBD5E0; padding: 8px 4px; text-align: center; }
+              th { background-color: #EDF2F7; color: #1A365D; font-weight: 900; font-size: 11px; text-transform: uppercase; }
+              tr:nth-child(even) { background-color: #F7FAFC; }
+              .summary-box { display: flex; justify-content: space-around; background-color: #EBF8FF; padding: 15px; border-radius: 8px; margin-top: 10px; border: 1px solid #BEE3F8; }
+              .summary-item { text-align: center; }
+              .summary-label { font-size: 12px; color: #4A5568; font-weight: bold; text-transform: uppercase; }
+              .summary-val { font-size: 20px; font-weight: 900; margin-top: 5px; }
+              .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #A0AEC0; border-top: 1px solid #E2E8F0; padding-top: 10px; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              ${logoHtml}
+              <h1 class="school-name">${school?.name || 'School Report'}</h1>
+              <div class="report-title">MASTER STUDENT BIO & FINANCIAL LEDGER</div>
+              <p>Generated by Bursar Office on ${new Date().toLocaleString()}</p>
+            </div>
+            
+            <div class="summary-box">
+              <div class="summary-item"><div class="summary-label">Total Expected Fees</div><div class="summary-val" style="color: #1A365D;">${formatCurrency(globalExpected)}</div></div>
+              <div class="summary-item"><div class="summary-label">Total Amount Paid</div><div class="summary-val" style="color: #38A169;">${formatCurrency(globalCollected)}</div></div>
+              <div class="summary-item"><div class="summary-label">Total Outstanding Balance</div><div class="summary-val" style="color: #E53E3E;">${formatCurrency(globalOutstanding)}</div></div>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 3%;">S/N</th>
+                  <th style="width: 10%;">Inv/Adm No.</th>
+                  <th style="text-align: left; width: 17%;">Full Name</th>
+                  <th style="width: 8%;">DOB</th>
+                  <th style="width: 8%;">Class</th>
+                  <th style="width: 10%;">Telephone</th>
+                  <th style="width: 7%;">Enrolled</th>
+                  <th style="width: 10%;">Expected Fee</th>
+                  <th style="width: 10%;">Amount Paid</th>
+                  <th style="width: 10%;">Balance</th>
+                  <th style="width: 7%;">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRows}
+              </tbody>
+            </table>
+            
+            <div class="footer">
+              Official Document • Securely Generated by EduSalone System • Do Not Alter
+            </div>
+          </body>
+        </html>
+      `;
+
+      if (Platform.OS === 'web') {
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(htmlContent);
+          printWindow.document.close();
+          setTimeout(() => { printWindow.print(); }, 500); 
+        } else Alert.alert('Popup Blocked', 'Please allow popups.');
+      } else {
+        const { uri } = await Print.printToFileAsync({ html: htmlContent });
+        await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+      }
+    } catch (error: any) { Alert.alert('System Error', 'Failed to generate Ledger: ' + error.message); }
+    setPrintingId(null);
+  }
+
+  async function generateReceiptPDF(transaction: any) {
+    setPrintingId(transaction.id);
+    try {
+      const amountFormatted = formatCurrency(transaction.amount_paid_sll);
+      const dateFormatted = new Date(transaction.payment_date).toLocaleDateString('en-GB');
+      const studentName = transaction.students?.users?.full_name?.toUpperCase() || 'UNKNOWN';
+      const studentClass = transaction.students?.current_class || 'N/A';
+      const studentAdm = transaction.students?.admission_number || 'N/A';
+
+      // ✅ FIXED: Show logo if it exists (removed startsWith check)
+      const logoHtml = school?.logo_url
+        ? `<img src="${school.logo_url}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid #1A365D;" />`
+        : `<div style="width:80px;height:80px;border-radius:50%;background:#1A365D;color:#FFF;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;text-align:center;line-height:1.2;padding:5px;">EDU<br/>SALONE</div>`;
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <style>
+              @page { size: A5; margin: 8mm; }
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #FFF; color: #1A202C; }
+              .page { border: 3px solid #1A365D; border-radius: 12px; overflow: hidden; }
+              
+              /* TOP STRIPE */
+              .top-stripe { background: #1A365D; height: 8px; }
+              
+              /* HEADER */
+              .header { background: linear-gradient(135deg, #1A365D 0%, #2B6CB0 100%); padding: 20px 24px; display: flex; align-items: center; }
+              .logo-wrap { width: 80px; height: 80px; flex-shrink: 0; }
+              .school-info { flex: 1; padding-left: 16px; }
+              .school-name { color: #FFF; font-size: 18px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.2; }
+              .receipt-badge { display: inline-block; background: #D69E2E; color: #FFF; font-size: 10px; font-weight: 900; letter-spacing: 2px; padding: 4px 10px; border-radius: 20px; margin-top: 6px; }
+              
+              /* RECEIPT ID BAR */
+              .id-bar { background: #EBF8FF; border-top: 1px solid #BEE3F8; border-bottom: 1px solid #BEE3F8; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; }
+              .receipt-num { font-size: 15px; font-weight: 900; color: #2B6CB0; letter-spacing: 1px; }
+              .receipt-date { font-size: 13px; color: #4A5568; font-weight: bold; }
+              
+              /* BODY */
+              .body { padding: 20px 24px; }
+              
+              /* INFO GRID */
+              .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+              .info-box { background: #F7FAFC; border-radius: 8px; padding: 12px; border-left: 3px solid #2B6CB0; }
+              .info-label { font-size: 9px; font-weight: 900; color: #718096; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+              .info-value { font-size: 14px; font-weight: 900; color: #1A365D; }
+              
+              /* AMOUNT BOX */
+              .amount-section { background: linear-gradient(135deg, #F0FFF4, #E6FFFA); border: 2px solid #38A169; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px; }
+              .amount-label { font-size: 10px; font-weight: 900; color: #276749; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; }
+              .amount-value { font-size: 36px; font-weight: 900; color: #22543D; }
+              .method-tag { display: inline-block; background: #C6F6D5; color: #22543D; font-size: 11px; font-weight: 900; padding: 4px 12px; border-radius: 20px; margin-top: 8px; }
+              
+              /* SIGNATURES */
+              .sig-section { display: flex; justify-content: space-between; margin-top: 24px; padding-top: 16px; border-top: 1px dashed #CBD5E0; }
+              .sig-box { text-align: center; width: 45%; }
+              .sig-line { border-top: 1.5px solid #4A5568; margin-bottom: 6px; }
+              .sig-label { font-size: 10px; font-weight: bold; color: #718096; text-transform: uppercase; letter-spacing: 0.5px; }
+              
+              /* FOOTER */
+              .footer { background: #1A365D; padding: 10px 24px; text-align: center; }
+              .footer-text { color: rgba(255,255,255,0.7); font-size: 9px; letter-spacing: 0.5px; }
+              
+              /* WATERMARK */
+              .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%) rotate(-30deg); font-size: 60px; color: rgba(26,54,93,0.04); font-weight: 900; z-index: 0; white-space: nowrap; pointer-events: none; }
+            </style>
+          </head>
+          <body>
+            <div class="page">
+              <div class="top-stripe"></div>
+              
+              <div class="header">
+                <div class="logo-wrap">${logoHtml}</div>
+                <div class="school-info">
+                  <div class="school-name">${school?.name || 'School Name'}</div>
+                  <div class="receipt-badge">OFFICIAL FEE RECEIPT</div>
+                </div>
+              </div>
+              
+              <div class="id-bar">
+                <div class="receipt-num">🧾 ${transaction.receipt_number}</div>
+                <div class="receipt-date">📅 ${dateFormatted}</div>
+              </div>
+              
+              <div class="body">
+                <div class="watermark">PAID</div>
+                
+                <div class="info-grid">
+                  <div class="info-box" style="grid-column: span 2;">
+                    <div class="info-label">Student Full Name</div>
+                    <div class="info-value">${studentName}</div>
+                  </div>
+                  <div class="info-box">
+                    <div class="info-label">Class</div>
+                    <div class="info-value">${studentClass}</div>
+                  </div>
+                  <div class="info-box">
+                    <div class="info-label">Admission No.</div>
+                    <div class="info-value">${studentAdm}</div>
+                  </div>
+                </div>
+                
+                <div class="amount-section">
+                  <div class="amount-label">Amount Paid</div>
+                  <div class="amount-value">${amountFormatted}</div>
+                  <div class="method-tag">💳 ${transaction.payment_method}</div>
+                </div>
+                
+                <div class="sig-section">
+                  <div class="sig-box">
+                    <div class="sig-line"></div>
+                    <div class="sig-label">Authorized Signature</div>
+                  </div>
+                  <div class="sig-box">
+                    <div class="sig-line"></div>
+                    <div class="sig-label">Official Stamp</div>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="footer">
+                <div class="footer-text">This is an official document generated by EduSalone • ${new Date().toLocaleString()} • Do not alter</div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      if (Platform.OS === 'web') {
+        const printWindow = window.open('', '_blank');
+        if (printWindow) { printWindow.document.write(htmlContent); printWindow.document.close(); setTimeout(() => { printWindow.print(); }, 500); }
+      } else {
+        const { uri } = await Print.printToFileAsync({ html: htmlContent });
+        await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+      }
+    } catch (error: any) { Alert.alert('System Error', 'Failed to generate Receipt: ' + error.message); }
+    setPrintingId(null);
+  }
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: 150 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <Text style={styles.headerTitle}>Fee Management</Text>
+        
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+           <Text style={styles.headerTitle}>Fee Management</Text>
+           <TouchableOpacity style={styles.masterPrintBtn} onPress={generateMasterLedgerPDF} disabled={printingId === 'master'}>
+             {printingId === 'master' ? <ActivityIndicator size="small" color="#FFF" /> : <Ionicons name="print" size={20} color="#FFF" />}
+           </TouchableOpacity>
+        </View>
         <Text style={styles.subText}>School fees in Sierra Leonean Leones (SLL)</Text>
 
         {/* FINANCIAL OVERVIEW */}
@@ -172,6 +409,30 @@ export default function FeesScreen() {
           <View style={[styles.statBox, { borderColor: '#3182CE' }]}><Text style={[styles.statLabel, {color: '#3182CE'}]}>Total Fees</Text><Text style={[styles.statValue, {color: '#3182CE'}]}>{formatCurrency(globalExpected)}</Text></View>
           <View style={[styles.statBox, { borderColor: '#38A169' }]}><Text style={[styles.statLabel, {color: '#38A169'}]}>Total Collected</Text><Text style={[styles.statValue, {color: '#38A169'}]}>{formatCurrency(globalCollected)}</Text></View>
           <View style={[styles.statBox, { borderColor: '#E53E3E' }]}><Text style={[styles.statLabel, {color: '#E53E3E'}]}>Outstanding</Text><Text style={[styles.statValue, {color: '#E53E3E'}]}>{formatCurrency(globalOutstanding)}</Text></View>
+        </View>
+
+        {/* 🌟 FEATURE 3: BURSAR NOTICEBOARD FEED */}
+        <View style={styles.card}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+            <Ionicons name="megaphone" size={20} color="#F59E0B" />
+            <Text style={[styles.sectionTitle, { marginBottom: 0, marginLeft: 8 }]}>School Broadcasts</Text>
+          </View>
+          
+          {news.length > 0 ? (
+            <ScrollView style={{ maxHeight: 160 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+              {news.map(n => (
+                <View key={n.id} style={styles.newsItem}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <Text style={styles.newsAuthor}>{n.author_name}</Text>
+                    <Text style={styles.newsDate}>{new Date(n.created_at).toLocaleDateString()}</Text>
+                  </View>
+                  <Text style={styles.newsContent}>{n.content}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          ) : (
+            <Text style={styles.emptyText}>No official notices broadcasted yet.</Text>
+          )}
         </View>
 
         {/* LEDGER FILTERS */}
@@ -186,16 +447,81 @@ export default function FeesScreen() {
         {/* STUDENT SELECTOR */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>1. Select Student Account</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 15 }} keyboardShouldPersistTaps="handled">
-            {filteredLedgers.map(student => (
-              <TouchableOpacity key={student.id} style={[styles.studentChip, student.id === selectedStudentId && styles.studentChipActive]} onPress={() => setSelectedStudentId(student.id)}>
-                <Text style={[styles.studentChipText, student.id === selectedStudentId && styles.studentChipTextActive]}>{student.users?.full_name}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: student.status === 'PAID' ? '#C6F6D5' : student.status === 'PARTIAL' ? '#FEEBC8' : '#FED7D7' }]}>
-                  <Text style={{ fontSize: 9, fontWeight: 'bold', color: student.status === 'PAID' ? '#22543D' : student.status === 'PARTIAL' ? '#DD6B20' : '#C53030' }}>{student.status}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          {/* 🔍 SMART SEARCH */}
+          <View style={{ marginBottom: 15 }}>
+            <View style={styles.searchBar}>
+              <Ionicons name="search-outline" size={18} color="#64748B" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by name or admission ID..."
+                placeholderTextColor="#64748B"
+                value={searchQuery}
+                onChangeText={(t) => { setSearchQuery(t); setShowSearchDropdown(t.length > 0); }}
+                onFocus={() => setShowSearchDropdown(searchQuery.length > 0)}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => { setSearchQuery(''); setShowSearchDropdown(false); }}>
+                  <Ionicons name="close-circle" size={18} color="#64748B" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {showSearchDropdown && (
+              <View style={styles.searchDropdown}>
+                {filteredLedgers
+                  .filter(s =>
+                    (s.users?.full_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    (s.admission_number || '').toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  .slice(0, 8)
+                  .map(student => (
+                    <TouchableOpacity
+                      key={student.id}
+                      style={[styles.searchResultItem, student.id === selectedStudentId && { backgroundColor: '#3B82F6' }]}
+                      onPress={() => { setSelectedStudentId(student.id); setSearchQuery(''); setShowSearchDropdown(false); }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={[{ fontWeight: '900', color: '#FFF', fontSize: 14 }]}>
+                          {student.users?.full_name || 'Unknown'}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#CBD5E0', marginTop: 2 }}>
+                          ID: {student.admission_number} • {student.current_class}
+                        </Text>
+                      </View>
+                      <View style={[styles.statusBadge, {
+                        backgroundColor: student.status === 'PAID' ? '#C6F6D5' : student.status === 'PARTIAL' ? '#FEEBC8' : '#FED7D7'
+                      }]}>
+                        <Text style={{ fontSize: 9, fontWeight: 'bold', color: student.status === 'PAID' ? '#22543D' : student.status === 'PARTIAL' ? '#744210' : '#C53030' }}>
+                          {student.status}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))
+                }
+                {filteredLedgers.filter(s =>
+                  (s.users?.full_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  (s.admission_number || '').toLowerCase().includes(searchQuery.toLowerCase())
+                ).length === 0 && (
+                  <Text style={{ color: '#64748B', textAlign: 'center', padding: 15, fontStyle: 'italic' }}>
+                    No student found for "{searchQuery}"
+                  </Text>
+                )}
+              </View>
+            )}
+
+            {selectedStudentId && !showSearchDropdown && (
+              <View style={styles.selectedStudentBanner}>
+                <Ionicons name="person-circle" size={20} color="#3B82F6" />
+                <Text style={styles.selectedStudentText}>
+                  {filteredLedgers.find(s => s.id === selectedStudentId)?.users?.full_name} —{' '}
+                  {filteredLedgers.find(s => s.id === selectedStudentId)?.admission_number}
+                </Text>
+                <TouchableOpacity onPress={() => setSelectedStudentId(null)}>
+                  <Ionicons name="close-circle" size={18} color="#E53E3E" />
+                </TouchableOpacity>
+              </View>
+            )}
+          </View> 
 
           {selectedStudentData && (
             <View style={styles.accountBox}>
@@ -228,24 +554,50 @@ export default function FeesScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* TRANSACTIONS */}
+        {/* TRANSACTIONS — GROUPED BY STUDENT */}
         <Text style={styles.listTitle}>Transaction History</Text>
         {fetching ? <ActivityIndicator size="large" color="#38A169" /> : transactions.length === 0 ? (
-          <Text style={styles.emptyText}>No fees found.</Text>
+          <Text style={styles.emptyText}>No transactions found.</Text>
         ) : (
-          transactions.map(item => (
-            <View key={item.id} style={styles.transactionItem}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.transactionName}>{item.students?.users?.full_name}</Text>
-                <Text style={styles.transactionDetails}>{item.receipt_number} • {item.payment_method}</Text>
-                <Text style={styles.dateText}>{new Date(item.payment_date).toLocaleDateString()}</Text>
+          Object.entries(
+            transactions.reduce((groups: any, item) => {
+              const key = item.student_id;
+              if (!groups[key]) {
+                groups[key] = {
+                  studentName: item.students?.users?.full_name || 'Unknown',
+                  studentClass: item.students?.current_class || '',
+                  items: []
+                };
+              }
+              groups[key].items.push(item);
+              return groups;
+            }, {})
+          ).map(([studentId, group]: any) => (
+            <View key={studentId} style={styles.groupContainer}>
+              <View style={styles.groupHeader}>
+                <Ionicons name="person-circle" size={22} color="#3B82F6" style={{ marginRight: 8 }} />
+                <Text style={styles.groupName}>{group.studentName}</Text>
+                <Text style={styles.groupClass}>  {group.studentClass}</Text>
               </View>
-              <View style={{ alignItems: 'flex-end', justifyContent: 'space-between' }}>
-                <Text style={styles.amountText}>{formatCurrency(item.amount_paid_sll)}</Text>
-                <TouchableOpacity style={styles.printButton} onPress={() => generateReceiptPDF(item)} disabled={printingId === item.id}>
-                  {printingId === item.id ? <ActivityIndicator color="#3B82F6" size="small" /> : <Text style={styles.printButtonText}>Print Receipt</Text>}
-                </TouchableOpacity>
-              </View>
+              {group.items.map((item: any, idx: number) => (
+                <View key={`${item.id}-${idx}`} style={styles.transactionItem}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.transactionDetails}>{item.receipt_number} • {item.payment_method}</Text>
+                    <Text style={styles.dateText}>{new Date(item.payment_date).toLocaleDateString()}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.amountText}>{formatCurrency(item.amount_paid_sll)}</Text>
+                    <View style={{ flexDirection: 'row' }}>
+                      <TouchableOpacity style={styles.printButton} onPress={() => generateReceiptPDF(item)} disabled={printingId === item.id}>
+                        {printingId === item.id ? <ActivityIndicator color="#3B82F6" size="small" /> : <Text style={styles.printButtonText}>RECEIPT</Text>}
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.deleteButton} onPress={() => deleteTransaction(item.id)}>
+                        <Ionicons name="trash-outline" size={15} color="#E53E3E" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              ))}
             </View>
           ))
         )}
@@ -256,8 +608,9 @@ export default function FeesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F172A', paddingTop: 30, paddingHorizontal: 20 },
-  headerTitle: { fontSize: 24, fontWeight: '900', color: '#FFF', marginBottom: 5 },
+  headerTitle: { fontSize: 24, fontWeight: '900', color: '#FFF' },
   subText: { color: '#94A3B8', fontSize: 13, marginBottom: 20 },
+  masterPrintBtn: { backgroundColor: '#3B82F6', padding: 10, borderRadius: 8, elevation: 3 },
   statsGrid: { flexDirection: 'row', gap: 10, marginBottom: 20 },
   statBox: { flex: 1, backgroundColor: '#1E293B', padding: 15, borderRadius: 12, borderWidth: 1 },
   statLabel: { fontSize: 10, fontWeight: 'bold', marginBottom: 5 },
@@ -269,8 +622,6 @@ const styles = StyleSheet.create({
   filterTextActive: { color: '#FFF' },
   card: { backgroundColor: '#1E293B', padding: 20, borderRadius: 16, marginBottom: 20 },
   sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#FFF', marginBottom: 12 },
-  label: { fontSize: 12, fontWeight: 'bold', color: '#94A3B8', marginBottom: 6, textTransform: 'uppercase' },
-  warningText: { color: '#EF4444', fontStyle: 'italic', marginBottom: 15, fontSize: 13 },
   input: { backgroundColor: '#0F172A', borderRadius: 10, padding: 14, fontSize: 16, marginBottom: 15, color: '#FFF', borderWidth: 1, borderColor: '#334155' },
   studentChip: { backgroundColor: '#0F172A', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, marginRight: 8, borderWidth: 1, borderColor: '#334155', alignItems: 'center' },
   studentChipActive: { backgroundColor: '#3B82F6', borderColor: '#3B82F6' },
@@ -296,5 +647,21 @@ const styles = StyleSheet.create({
   dateText: { fontSize: 11, color: '#64748B', marginTop: 4 },
   printButton: { backgroundColor: '#0F172A', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: '#3B82F6' },
   printButtonText: { color: '#3B82F6', fontWeight: 'bold', fontSize: 11, textTransform: 'uppercase' },
-  emptyText: { textAlign: 'center', color: '#64748B', marginTop: 20, fontStyle: 'italic' }
+  emptyText: { textAlign: 'center', color: '#64748B', marginTop: 20, fontStyle: 'italic' },
+  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E293B', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: '#334155', marginBottom: 8 },
+  searchInput: { flex: 1, color: '#FFF', fontSize: 14, fontWeight: '600', marginLeft: 8 },
+  searchDropdown: { backgroundColor: '#1E293B', borderRadius: 12, borderWidth: 1, borderColor: '#334155', overflow: 'hidden', marginBottom: 8 },
+  searchResultItem: { padding: 14, borderBottomWidth: 1, borderBottomColor: '#0F172A', flexDirection: 'row', alignItems: 'center', backgroundColor: '#263548' },
+  selectedStudentBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E3A5F', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#3B82F6' },
+  selectedStudentText: { flex: 1, color: '#93C5FD', fontWeight: '700', fontSize: 13, marginLeft: 8 },
+  // 🌟 FEATURE 3 STYLES: BURSAR NOTICEBOARD FEED
+  newsItem: { backgroundColor: '#0F172A', padding: 14, borderRadius: 10, marginBottom: 10, borderLeftWidth: 3, borderLeftColor: '#F59E0B' },
+  newsAuthor: { fontSize: 13, fontWeight: '900', color: '#E2E8F0' },
+  newsDate: { fontSize: 10, color: '#64748B', fontWeight: 'bold' },
+  newsContent: { fontSize: 13, color: '#94A3B8', marginTop: 4, lineHeight: 18 },
+  groupContainer: { backgroundColor: '#1E293B', borderRadius: 12, marginBottom: 16, overflow: 'hidden' as any, borderWidth: 1, borderColor: '#334155' },
+  groupHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0F172A', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#334155' },
+  groupName: { fontSize: 16, fontWeight: '900' as any, color: '#FFF' },
+  groupClass: { fontSize: 13, color: '#94A3B8', fontWeight: 'bold' as any },
+  deleteButton: { backgroundColor: '#1a0505', paddingHorizontal: 8, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: '#E53E3E' }
 });

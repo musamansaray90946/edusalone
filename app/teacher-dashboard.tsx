@@ -1,7 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
@@ -16,6 +14,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../src/lib/supabase';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 
 // ─────────────────────────────────────────────
 // INTERFACES & CONSTANTS
@@ -399,18 +399,14 @@ const StudentGradeRow = ({ student, initialGrade, onGradeUpdate, onDelete }: any
         <Text style={styles.studentName} numberOfLines={1}>{student.users?.full_name}</Text>
         <Text style={styles.admText}>{student.admission_number || 'No ADM No.'}</Text>
       </View>
-      <TextInput style={styles.scoreInput} keyboardType="numeric" maxLength={2} placeholder="-" placeholderTextColor="#CBD5E0" value={t1} onChangeText={v => { const d = v.replace(/[^0-9]/g, ''); const n = Number(d); setT1(d === '' ? '' : (n > 15 ? '15' : d)); if (Platform.OS !== 'web') Haptics.selectionAsync(); }} />
-      <TextInput style={styles.scoreInput} keyboardType="numeric" maxLength={2} placeholder="-" placeholderTextColor="#CBD5E0" value={t2} onChangeText={v => { const d = v.replace(/[^0-9]/g, ''); const n = Number(d); setT2(d === '' ? '' : (n > 15 ? '15' : d)); if (Platform.OS !== 'web') Haptics.selectionAsync(); }} />
-      <TextInput style={styles.scoreInput} keyboardType="numeric" maxLength={2} placeholder="-" placeholderTextColor="#CBD5E0" value={ex} onChangeText={v => { const d = v.replace(/[^0-9]/g, ''); const n = Number(d); setEx(d === '' ? '' : (n > 70 ? '70' : d)); if (Platform.OS !== 'web') Haptics.selectionAsync(); }} />
-      {/* TOT — auto-calculated total out of 100 */}
-      <View style={[styles.autoBox, { backgroundColor: total > 0 ? '#EBF8FF' : 'transparent', borderRadius: 6, borderWidth: total > 0 ? 1.5 : 0, borderColor: '#3182CE', minWidth: 50 }]}>
-        {isError
-          ? <Text style={{ color: '#E53E3E', fontSize: 12, fontWeight: '900' as any, textAlign: 'center' }}>ERR</Text>
-          : <Text style={{ color: total > 0 ? '#2C5282' : '#CBD5E0', fontSize: 14, fontWeight: '900' as any, textAlign: 'center' }}>{total > 0 ? total : '-'}</Text>}
-      </View>
-      {/* RNK — auto class rank */}
-      <View style={[styles.autoBox, { backgroundColor: rnk ? '#FFFBEB' : 'transparent', borderRadius: 6, borderWidth: rnk ? 1.5 : 0, borderColor: '#F6AD55', minWidth: 50 }]}>
-        <Text style={{ color: rnk ? '#B7791F' : '#CBD5E0', fontWeight: '900' as any, fontSize: 13, textAlign: 'center' }}>{rnk || '-'}</Text>
+      <TextInput style={styles.scoreInput} keyboardType="numeric" maxLength={3} placeholder="-" placeholderTextColor="#CBD5E0" value={t1} onChangeText={v => { setT1(v.replace(/[^0-9]/g, '')); if (Platform.OS !== 'web') Haptics.selectionAsync(); }} />
+      <TextInput style={styles.scoreInput} keyboardType="numeric" maxLength={3} placeholder="-" placeholderTextColor="#CBD5E0" value={t2} onChangeText={v => { setT2(v.replace(/[^0-9]/g, '')); if (Platform.OS !== 'web') Haptics.selectionAsync(); }} />
+      <TextInput style={styles.scoreInput} keyboardType="numeric" maxLength={3} placeholder="-" placeholderTextColor="#CBD5E0" value={ex} onChangeText={v => { setEx(v.replace(/[^0-9]/g, '')); if (Platform.OS !== 'web') Haptics.selectionAsync(); }} />
+      <View style={styles.autoBox}>{isError ? <Text style={{ color: '#E53E3E', fontSize: 12, fontWeight: 'bold' }}>ERR</Text> : <Text style={styles.autoText}>{total > 0 ? total : '-'}</Text>}</View>
+      <TextInput style={styles.meanInput} keyboardType="numeric" maxLength={4} placeholder="-" placeholderTextColor="#CBD5E0" value={mn} onChangeText={setMn} />
+      <View style={styles.autoBox}><Text style={styles.autoText}>100</Text></View>
+      <View style={[styles.autoBox, { backgroundColor: rnk ? '#FEFCBF' : 'transparent', borderRadius: 6 }]}>
+        <Text style={[styles.autoText, { color: '#DD6B20', fontWeight: '900' as any, fontSize: 12 }]}>{rnk || '-'}</Text>
       </View>
       <View style={styles.autoBox}><Text style={[styles.autoText, { color: total > 0 ? gradeColor : '#718096' }]}>{total > 0 ? grade : '-'}</Text></View>
       <View style={[styles.autoBox, { width: 90 }]}><Text style={[styles.autoText, { fontSize: 10, color: '#4A5568' }]}>{total > 0 ? remark : '-'}</Text></View>
@@ -614,22 +610,6 @@ export default function TeacherDashboard() {
     if (data) setMaterials(data);
   }
 
-  // Open/view/download a material file
-  async function openMaterial(fileUrl: string, fileName: string) {
-    if (!fileUrl) { Alert.alert('No File', 'This material has no file URL.'); return; }
-    try {
-      if (Platform.OS === 'web') {
-        window.open(fileUrl, '_blank');
-      } else {
-        const supported = await Linking.canOpenURL(fileUrl);
-        if (supported) await Linking.openURL(fileUrl);
-        else Alert.alert('Cannot Open', `Unable to open ${fileName}. The file URL may be invalid.`);
-      }
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Could not open the file.');
-    }
-  }
-
   function decodeBase64(base64: string): Uint8Array {
     const bin = atob(base64);
     const bytes = new Uint8Array(bin.length);
@@ -637,108 +617,36 @@ export default function TeacherDashboard() {
     return bytes;
   }
 
-  async function doUpload(fileName: string, fileType: string, fileSize: number, base64: string) {
-    console.log('[Upload] Starting:', fileName, fileType, fileSize, 'bytes');
-    if (fileSize > 10 * 1024 * 1024) {
-      Alert.alert('File Too Large', 'Please choose a file smaller than 10MB.');
-      setUploadingMaterial(false);
-      return;
-    }
-    if (!profile?.school_id || !profile?.id) {
-      Alert.alert('Not Signed In', 'Profile not loaded. Please log out and log back in.');
-      setUploadingMaterial(false);
-      return;
-    }
-    const fileExt = (fileName.split('.').pop() || 'pdf').toLowerCase();
-    // Sanitize filename: remove spaces and special characters for Supabase storage
-    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/_{2,}/g, '_');
-    const filePath = `${profile.school_id}/${profile.id}/${Date.now()}_${safeName}`;
-    console.log('[Upload] Uploading to path:', filePath);
-    const { error: uploadError } = await supabase.storage
-      .from('school-materials')
-      .upload(filePath, decodeBase64(base64), { contentType: fileType || 'application/octet-stream', upsert: false });
-    if (uploadError) {
-      console.error('[Upload] Storage error:', uploadError);
-      Alert.alert('Storage Upload Failed', `${uploadError.message}\n\nThis usually means the school-materials bucket is missing or RLS policy is blocking. Run the SQL setup again.`);
-      setUploadingMaterial(false);
-      throw uploadError;
-    }
-    console.log('[Upload] Storage upload successful');
-    const { data: urlData } = supabase.storage.from('school-materials').getPublicUrl(filePath);
-    const { error: metaError } = await supabase.from('learning_materials').insert({
-      school_id: profile.school_id, teacher_id: profile.id,
-      title: materialTitle.trim(), subject: materialSubject.trim() || subject,
-      class_name: materialTarget === 'class' ? selectedClass : 'ALL',
-      file_url: urlData.publicUrl, file_name: safeName,
-      file_size: fileSize, file_type: fileExt, target: materialTarget,
-    });
-    if (metaError) {
-      // If metadata save fails, still show what uploaded
-      console.error('Metadata error:', metaError);
-      throw new Error(`File uploaded but metadata failed: ${metaError.message}. Check Supabase RLS policies.`);
-    }
-    Alert.alert('✅ Uploaded!', `"${materialTitle}" sent to ${materialTarget === 'class' ? selectedClass : 'all students'}.`);
-    setMaterialTitle(''); setMaterialSubject('');
-    loadMaterials();
-    setImpactScore(s => s + 30);
-  }
-
-  // Web file upload handler — called when hidden <input> changes
-  function handleWebFileSelected(event: any) {
-    const file = event.target?.files?.[0];
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      Alert.alert('File Too Large', 'Please choose a file smaller than 10MB.');
-      event.target.value = '';
-      return;
-    }
-    setUploadingMaterial(true);
-    const reader = new FileReader();
-    reader.onload = async function(ev) {
-      try {
-        const dataUrl = (ev.target as any).result as string;
-        const base64 = dataUrl.split(',')[1];
-        await doUpload(file.name, file.type, file.size, base64);
-      } catch (err: any) {
-        Alert.alert('Upload Failed', err.message || 'Could not upload file.');
-      } finally {
-        setUploadingMaterial(false);
-        event.target.value = ''; // reset so same file can be re-selected
-      }
-    };
-    reader.onerror = () => {
-      Alert.alert('Read Failed', 'Could not read the file.');
-      setUploadingMaterial(false);
-    };
-    reader.readAsDataURL(file);
-  }
-
   async function uploadLessonNote() {
-    if (!materialTitle.trim()) { Alert.alert('Missing Title', 'Please open the settings and enter a Material Title first.'); return; }
-
-    if (Platform.OS === 'web') {
-      // Trigger the hidden file input directly — no async gap before click
-      const inp = document.getElementById('edusalone-file-upload') as HTMLInputElement;
-      if (inp) { inp.value = ''; inp.click(); }
-      return;
-    }
-
-    // ── MOBILE: use DocumentPicker ──
+    if (!materialTitle.trim()) { Alert.alert('Missing Title', 'Please enter a title for this material.'); return; }
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/pdf', 'application/msword',
-               'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-               'image/*'],
+        type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/*'],
         copyToCacheDirectory: true,
       });
       if (result.canceled || !result.assets?.length) return;
       const file = result.assets[0];
       setUploadingMaterial(true);
       const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: 'base64' });
-      await doUpload(file.name, file.mimeType || 'application/octet-stream', file.size || 0, base64);
-    } catch (err: any) {
-      Alert.alert('Upload Failed', err.message || 'Could not upload file.');
-    }
+      const fileExt = (file.name.split('.').pop() || 'pdf').toLowerCase();
+      const filePath = `${profile.school_id}/${profile.id}/${Date.now()}_${file.name}`;
+      const { error: uploadError } = await supabase.storage.from('school-materials').upload(filePath, decodeBase64(base64), { contentType: file.mimeType || 'application/octet-stream', upsert: false });
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage.from('school-materials').getPublicUrl(filePath);
+      const { error: metaError } = await supabase.from('learning_materials').insert({
+        school_id: profile.school_id, teacher_id: profile.id,
+        title: materialTitle.trim(), subject: materialSubject.trim() || subject,
+        class_name: materialTarget === 'class' ? selectedClass : 'ALL',
+        file_url: urlData.publicUrl, file_name: file.name,
+        file_size: file.size, file_type: fileExt, target: materialTarget,
+      });
+      if (metaError) throw metaError;
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('✅ Uploaded!', `"${materialTitle}" sent to ${materialTarget === 'class' ? selectedClass : 'all students'}.`);
+      setMaterialTitle(''); setMaterialSubject('');
+      loadMaterials();
+      setImpactScore(s => s + 30);
+    } catch (err: any) { Alert.alert('Upload Failed', err.message || 'Could not upload file.'); }
     setUploadingMaterial(false);
   }
 
@@ -770,44 +678,27 @@ export default function TeacherDashboard() {
       } else {
         if (total >= 75) { grade = 'A1'; remark = 'EXCELLENT'; } else if (total >= 70) { grade = 'B2'; remark = 'V. GOOD'; } else if (total >= 65) { grade = 'B3'; remark = 'GOOD'; } else if (total >= 60) { grade = 'C4'; remark = 'CREDIT'; } else if (total >= 55) { grade = 'C5'; remark = 'CREDIT'; } else if (total >= 50) { grade = 'C6'; remark = 'CREDIT'; } else if (total >= 45) { grade = 'D7'; remark = 'PASS'; } else if (total >= 40) { grade = 'E8'; remark = 'PASS'; }
       }
-      const recordData = { school_id: profile.school_id, student_id: individualStudent.id, teacher_id: profile.id, subject: subject.trim().toUpperCase(), term, academic_year: selectedYear, test_1: t1, test_2: t2, exam: ex, score: total, grade, remark, submission_status: 'pending_review', submitted_by: profile.id, submitted_at: new Date().toISOString() };
+      const recordData = { school_id: profile.school_id, student_id: individualStudent.id, teacher_id: profile.id, subject: subject.trim().toUpperCase(), term, academic_year: selectedYear, test_1: t1, test_2: t2, exam: ex, score: total, grade, remark, submission_status: 'draft' };
       const { data: existing } = await supabase.from('academic_records').select('id').eq('student_id', individualStudent.id).eq('subject', subject.trim().toUpperCase()).eq('term', term).eq('academic_year', selectedYear).maybeSingle();
-      if (existing) { const { error } = await supabase.from('academic_records').update(recordData).eq('id', existing.id); if (error) throw error; }
-      else { const { error } = await supabase.from('academic_records').insert(recordData); if (error) throw error; }
+      if (existing) await supabase.from('academic_records').update(recordData).eq('id', existing.id);
+      else await supabase.from('academic_records').insert(recordData);
       setSavedStudentIds(prev => [...prev.filter(id => id !== individualStudent.id), individualStudent.id]);
       recalculateClassRanks(subject.trim().toUpperCase(), term, selectedYear, selectedClass);
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const savedName = individualStudent.users?.full_name;
       setSingleGrade({ test1: '', test2: '', exam: '' }); setIndividualStudent(null); setStudentSearchQuery(''); setImpactScore(s => s + 10);
-      Alert.alert('✅ Submitted to Principal', `Grade for ${savedName} submitted for review.\n\nSubject: ${subject.trim().toUpperCase()}\nTotal: ${total} — Grade ${grade} (${remark})\n\nStatus: PENDING REVIEW`);
+      Alert.alert('✅ Saved', `Grade saved for ${individualStudent.users?.full_name}.\nTotal: ${total} — ${grade} (${remark})`);
     } catch (err: any) { Alert.alert('Error', err.message); }
     setSavingSingle(false);
   }
 
   async function saveBulkGrades() {
-    if (!subject.trim()) { Alert.alert('Missing Subject', 'Please open the ⚙ drawer (top right menu) and enter the subject name before submitting grades.'); return; }
+    if (!subject.trim()) { Alert.alert('Missing Subject', 'Please type the subject name (e.g. Mathematics).'); return; }
     if (Object.values(gradesMap).some((g: any) => g.isError === true)) { Alert.alert('Mathematical Error', 'A student has a total score over 100. Please fix the red rows before saving.'); return; }
     const gradeCount = Object.values(gradesMap).filter((g: any) => g.test1 !== '' || g.test2 !== '' || g.exam !== '').length;
     if (gradeCount === 0) { Alert.alert('No Grades Entered', 'Please enter at least one student score before saving.'); return; }
-    
-    // Web: window.confirm works synchronously; Alert.alert buttons don't work on web
-    if (Platform.OS === 'web') {
-      const confirmed = window.confirm(
-        `SUBMIT GRADES TO PRINCIPAL?\n\nSubject: ${subject.trim().toUpperCase()}\nClass: ${selectedClass}\nTerm: ${term} • ${selectedYear}\nStudents: ${gradeCount}\n\nThe Principal will review these grades.\nClick OK to submit.`
-      );
-      if (confirmed) executeSaveBulkGrades();
-      return;
-    }
-    
-    // Mobile: native Alert with buttons
-    Alert.alert(
-      '📤 Submit Grades to Principal?',
-      `You are about to submit ${gradeCount} student grade(s) for:\n\n📚 Subject: ${subject.trim().toUpperCase()}\n🏫 Class: ${selectedClass}\n📅 ${term} • ${selectedYear}\n\nThe Principal will review and approve these grades.\n\nAre you sure everything is correct?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: '✅ Yes, Submit Now', onPress: () => executeSaveBulkGrades() },
-      ]
-    );
+    Alert.alert('Save Grades?', `Save grades for ${gradeCount} student(s) in ${subject.trim().toUpperCase()} (${selectedClass} • ${term} • ${selectedYear})?`, [
+      { text: 'Cancel', style: 'cancel' }, { text: 'Save Grades', onPress: () => executeSaveBulkGrades() },
+    ]);
   }
 
   async function executeSaveBulkGrades() {
@@ -825,7 +716,7 @@ export default function TeacherDashboard() {
           let grade = 'F9'; let remark = 'FAIL';
           if (isJSS) { if (total >= 75) { grade = '1'; remark = 'EXCELLENT'; } else if (total >= 65) { grade = '2'; remark = 'V. GOOD'; } else if (total >= 55) { grade = '3'; remark = 'GOOD'; } else if (total >= 45) { grade = '4'; remark = 'CREDIT'; } else if (total >= 35) { grade = '5'; remark = 'PASS'; } else { grade = '6'; remark = 'FAIL'; } }
           else { if (total >= 75) { grade = 'A1'; remark = 'EXCELLENT'; } else if (total >= 70) { grade = 'B2'; remark = 'V. GOOD'; } else if (total >= 65) { grade = 'B3'; remark = 'GOOD'; } else if (total >= 60) { grade = 'C4'; remark = 'CREDIT'; } else if (total >= 55) { grade = 'C5'; remark = 'CREDIT'; } else if (total >= 50) { grade = 'C6'; remark = 'CREDIT'; } else if (total >= 45) { grade = 'D7'; remark = 'PASS'; } else if (total >= 40) { grade = 'E8'; remark = 'PASS'; } }
-          const record = { school_id: profile.school_id, student_id: student.id, teacher_id: profile.id, subject: subject.trim().toUpperCase(), term, academic_year: selectedYear, test_1: Number(g.test1) || 0, test_2: Number(g.test2) || 0, exam: Number(g.exam) || 0, score: total, grade, remark, rank: g.rank, submission_status: 'pending_review', submitted_by: profile.id, submitted_at: new Date().toISOString() };
+          const record = { school_id: profile.school_id, student_id: student.id, teacher_id: profile.id, subject: subject.trim().toUpperCase(), term, academic_year: selectedYear, test_1: Number(g.test1) || 0, test_2: Number(g.test2) || 0, exam: Number(g.exam) || 0, score: total, mean: g.mean, grade, remark, rank: g.rank };
           const existing = existingRecords?.find(e => e.student_id === student.id);
           if (existing) { const { error } = await supabase.from('academic_records').update(record).eq('id', existing.id); if (error) throw error; }
           else toInsert.push(record);
@@ -834,7 +725,7 @@ export default function TeacherDashboard() {
       if (toInsert.length > 0) { const { error } = await supabase.from('academic_records').insert(toInsert); if (error) throw error; }
       if (!gradesEntered) { Alert.alert('No Data', 'You have not entered any grades yet.'); setSubmitting(false); return; }
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('✅ Grades Submitted!', `${subject.trim().toUpperCase()} grades for ${selectedClass} have been submitted to the Principal for review.\n\nStatus: PENDING REVIEW\n\nThe Principal will be notified and will review the grades shortly.`);
+      Alert.alert('Grades Saved', `${subject.trim().toUpperCase()} grades for ${selectedClass} saved.\n\nGo to the Review tab to approve and send to the Principal.`);
       setSubject(''); loadStudentsForClass(); recalculateClassRanks(subject.trim().toUpperCase(), term, selectedYear, selectedClass); setImpactScore(s => s + 100);
     } catch (err: any) { Alert.alert('Database Error', `Failed to save: ${err.message}`); }
     setSubmitting(false);
@@ -1433,18 +1324,10 @@ export default function TeacherDashboard() {
                     </View>
                     <Text style={styles.label}>Enter Scores</Text>
                     <View style={{ flexDirection: 'row', marginBottom: 16 }}>
-                      {[{ label: 'TEST 1 (/15)', key: 'test1', max: 15 }, { label: 'TEST 2 (/15)', key: 'test2', max: 15 }, { label: 'EXAM (/70)', key: 'exam', max: 70 }].map((field, idx) => (
+                      {[{ label: 'TEST 1 (/15)', key: 'test1' }, { label: 'TEST 2 (/15)', key: 'test2' }, { label: 'EXAM (/70)', key: 'exam' }].map((field, idx) => (
                         <View key={field.key} style={{ flex: 1, marginRight: idx < 2 ? 10 : 0 }}>
                           <Text style={{ fontSize: 11, color: '#718096', fontWeight: 'bold' as any, marginBottom: 6, textAlign: 'center' }}>{field.label}</Text>
-                          <TextInput style={{ backgroundColor: '#EDF2F7', borderRadius: 10, textAlign: 'center', fontSize: 24, fontWeight: '900' as any, color: '#1A365D', paddingVertical: 14 }} keyboardType="numeric" maxLength={field.max === 70 ? 2 : 2} placeholder="–" placeholderTextColor="#CBD5E0" value={(singleGrade as any)[field.key]} onChangeText={v => {
-                            const digits = v.replace(/[^0-9]/g, '');
-                            // Clamp to max — cannot exceed field limit
-                            const num = Number(digits);
-                            const clamped = digits === '' ? '' : (num > field.max ? String(field.max) : digits);
-                            setSingleGrade(p => ({ ...p, [field.key]: clamped }));
-                            if (num > field.max && Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                          }} />
-                          <Text style={{ fontSize: 9, color: '#A0AEC0', textAlign: 'center', marginTop: 3 }}>Max {field.max}</Text>
+                          <TextInput style={{ backgroundColor: '#EDF2F7', borderRadius: 10, textAlign: 'center', fontSize: 24, fontWeight: '900' as any, color: '#1A365D', paddingVertical: 14 }} keyboardType="numeric" maxLength={2} placeholder="–" placeholderTextColor="#CBD5E0" value={(singleGrade as any)[field.key]} onChangeText={v => setSingleGrade(p => ({ ...p, [field.key]: v.replace(/[^0-9]/g, '') }))} />
                         </View>
                       ))}
                     </View>
@@ -1468,7 +1351,7 @@ export default function TeacherDashboard() {
                       );
                     })()}
                     <TouchableOpacity style={[styles.saveButton, { width: '100%' as any, backgroundColor: savingSingle ? '#A0AEC0' : '#DD6B20' }]} onPress={saveIndividualGrade} disabled={savingSingle}>
-                      {savingSingle ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveButtonText}>📤 Submit to Principal</Text>}
+                      {savingSingle ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveButtonText}>💾 Save Grade & Auto-Rank</Text>}
                     </TouchableOpacity>
                   </View>
                 )}
@@ -1498,7 +1381,9 @@ export default function TeacherDashboard() {
                     <Text style={[styles.columnHeader, { fontSize: 9 }]}>T2{'\n'}/15</Text>
                     <Text style={[styles.columnHeader, { fontSize: 9 }]}>EX{'\n'}/70</Text>
                     <Text style={styles.columnHeader}>TOT</Text>
-                    <Text style={[styles.columnHeader, { color: '#DD6B20', fontWeight: '900' as any }]}>RNK</Text>
+                    <Text style={styles.columnHeader}>MN</Text>
+                    <Text style={styles.columnHeader}>MAX</Text>
+                    <Text style={styles.columnHeader}>RNK</Text>
                     <Text style={styles.columnHeader}>GRD</Text>
                     <Text style={[styles.columnHeader, { width: 90 }]}>REMARKS</Text>
                     <Text style={[styles.columnHeader, { width: 36 }]}>DEL</Text>
@@ -1511,7 +1396,7 @@ export default function TeacherDashboard() {
                       ))}
                   {students.length > 0 && (
                     <TouchableOpacity style={styles.saveButton} onPress={saveBulkGrades} disabled={submitting}>
-                      {submitting ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveButtonText}>📤 Submit to Principal</Text>}
+                      {submitting ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveButtonText}>💾 Send to Principal</Text>}
                     </TouchableOpacity>
                   )}
                 </ScrollView>
@@ -1688,16 +1573,13 @@ export default function TeacherDashboard() {
             : materials.map((m: any) => (
                 <View key={m.id} style={{ backgroundColor: '#FFF', borderRadius: 14, padding: 16, marginBottom: 10, flexDirection: 'row', alignItems: 'center', elevation: 1, borderLeftWidth: 3, borderLeftColor: m.file_type === 'pdf' ? '#E53E3E' : '#3182CE' }}>
                   <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: m.file_type === 'pdf' ? '#FED7D7' : '#EBF8FF', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                    <Ionicons name={m.file_type === 'pdf' ? 'document-text' : (['mp4','mov','webm','mkv','avi'].includes(m.file_type) ? 'videocam' : 'document')} size={22} color={m.file_type === 'pdf' ? '#E53E3E' : '#3182CE'} />
+                    <Ionicons name={m.file_type === 'pdf' ? 'document-text' : 'document'} size={22} color={m.file_type === 'pdf' ? '#E53E3E' : '#3182CE'} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontWeight: '900' as any, color: '#1A365D', fontSize: 14 }} numberOfLines={1}>{m.title}</Text>
                     <Text style={{ color: '#718096', fontSize: 11, marginTop: 2 }}>{m.subject || 'General'} • {m.class_name} • {new Date(m.created_at).toLocaleDateString('en-GB')}</Text>
                     <Text style={{ color: '#A0AEC0', fontSize: 10, marginTop: 1 }} numberOfLines={1}>{m.file_name}</Text>
                   </View>
-                  <TouchableOpacity onPress={() => openMaterial(m.file_url, m.file_name)} style={{ backgroundColor: '#EBF8FF', borderRadius: 8, padding: 8, marginRight: 8 }}>
-                    <Ionicons name="eye-outline" size={18} color="#3182CE" />
-                  </TouchableOpacity>
                   <TouchableOpacity onPress={() => deleteMaterial(m.id)} style={{ backgroundColor: '#FFF5F5', borderRadius: 8, padding: 8 }}>
                     <Ionicons name="trash-outline" size={18} color="#E53E3E" />
                   </TouchableOpacity>
@@ -1830,17 +1712,6 @@ export default function TeacherDashboard() {
         </ScrollView>
       )}
 
-      {/* ── HIDDEN FILE INPUT FOR WEB UPLOAD ── */}
-      {Platform.OS === 'web' && (
-        <input
-          id="edusalone-file-upload"
-          type="file"
-          accept=".pdf,.doc,.docx,image/*"
-          style={{ display: 'none' }}
-          onChange={handleWebFileSelected}
-        />
-      )}
-
       {/* ── FLOATING CHAT BUTTON ── */}
       <TouchableOpacity
         style={{ position: 'absolute', bottom: 25, right: 20, backgroundColor: '#25D366', width: 62, height: 62, borderRadius: 31, justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, zIndex: 9999 }}
@@ -1893,9 +1764,9 @@ const styles = StyleSheet.create({
   chipTextActive: { color: '#FFFFFF' },
   inputInner: { flex: 1, paddingVertical: 12, fontSize: 15, color: '#2D3748', fontWeight: 'bold' },
   bioInput: { backgroundColor: '#F7FAFC', borderRadius: 8, padding: 12, fontSize: 15, color: '#2D3748', borderWidth: 1, borderColor: '#E2E8F0', marginBottom: 15 },
-  spreadsheetHeader: { flexDirection: 'row', paddingHorizontal: 15, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#CBD5E0', width: 680 },
+  spreadsheetHeader: { flexDirection: 'row', paddingHorizontal: 15, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#CBD5E0', width: 800 },
   columnHeader: { width: 50, fontSize: 11, fontWeight: 'bold', color: '#718096', textAlign: 'center' },
-  spreadsheetContainer: { flex: 1, paddingHorizontal: 15, width: 680 },
+  spreadsheetContainer: { flex: 1, paddingHorizontal: 15, width: 800 },
   studentRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', paddingVertical: 12, paddingHorizontal: 10, marginBottom: 8, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.02, elevation: 1 },
   studentName: { fontSize: 14, fontWeight: 'bold', color: '#2D3748' },
   admText: { fontSize: 10, color: '#A0AEC0', fontWeight: 'bold' },
