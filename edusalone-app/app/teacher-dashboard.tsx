@@ -476,6 +476,10 @@ export default function TeacherDashboard() {
   const [selectedYear, setSelectedYear] = useState('2025/2026');
   const [students, setStudents] = useState<any[]>([]);
   const [subject, setSubject] = useState('');
+  const [subjectOptions, setSubjectOptions] = useState<string[]>([]);
+  const [showSubjectDropdown, setShowSubjectDropdown] = useState(false);
+  const [addingSubject, setAddingSubject] = useState(false);
+  const [newSubjectName, setNewSubjectName] = useState('');
   const [gradesMap, setGradesMap] = useState<any>({});
   const [gradeMode, setGradeMode] = useState<'class' | 'individual'>('class');
   const [individualStudent, setIndividualStudent] = useState<any | null>(null);
@@ -515,7 +519,7 @@ export default function TeacherDashboard() {
     fetchTeacherData();
   }, []);
   useEffect(() => {
-    if (profile) { loadStudentsForClass(); loadTimetable(); fetchNews(); fetchContacts(); setCurrentPage(0); setSavedStudentIds([]); setStudentSearchQuery(''); setIndividualStudent(null); }
+    if (profile) { loadStudentsForClass(); loadSubjects(); loadTimetable(); fetchNews(); fetchContacts(); setCurrentPage(0); setSavedStudentIds([]); setStudentSearchQuery(''); setIndividualStudent(null); }
   }, [selectedClass, profile]);
   useEffect(() => { if (evalStudent && mode === 'evaluations') loadExistingEvaluation(); }, [evalStudent, term]);
   useEffect(() => { if (mode === 'review' && profile) fetchPendingSubjects(); }, [mode, term, selectedYear, profile]);
@@ -591,6 +595,35 @@ export default function TeacherDashboard() {
     const { data } = await supabase.from('students').select('id, admission_number, current_class, users!user_id(full_name)').eq('school_id', profile.school_id).eq('current_class', selectedClass).order('admission_number', { ascending: true });
     if (data) { setStudents(data); setGradesMap({}); setEvalStudent(null); }
     setLoading(false);
+  }
+
+  async function loadSubjects() {
+    if (!profile) return;
+    const level = (selectedClass || '').toUpperCase().includes('JSS') ? 'JSS' : 'SS';
+    const { data } = await supabase
+      .from('subjects')
+      .select('name')
+      .eq('level', level)
+      .eq('is_active', true)
+      .or(`school_id.is.null,school_id.eq.${profile.school_id}`)
+      .order('name', { ascending: true });
+    if (data) setSubjectOptions([...new Set(data.map((s: any) => s.name))]);
+  }
+
+  async function addNewSubject() {
+    const name = newSubjectName.trim().toUpperCase();
+    if (!name) { Alert.alert('Empty', 'Type a subject name first.'); return; }
+    if (subjectOptions.includes(name)) { setSubject(name); setNewSubjectName(''); setShowSubjectDropdown(false); return; }
+    const level = (selectedClass || '').toUpperCase().includes('JSS') ? 'JSS' : 'SS';
+    setAddingSubject(true);
+    try {
+      const { error } = await supabase.from('subjects').insert({ name, level, school_id: profile.school_id });
+      if (error) throw error;
+      setSubject(name); setNewSubjectName(''); setShowSubjectDropdown(false);
+      await loadSubjects();
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err: any) { Alert.alert('Could not add', err.message); }
+    setAddingSubject(false);
   }
 
   // ── LIVE AUTO-RANK ──
@@ -1265,13 +1298,34 @@ function confirmApproveSubject() {
                     ))}
                   </View>
 
-                  {/* SUBJECT */}
+                  {/* SUBJECT — dropdown from subjects table, auto JSS/SS by class */}
                   <Text style={{ fontSize: 10, fontWeight: '900' as any, color: '#718096', marginBottom: 6, textTransform: 'uppercase' as any, letterSpacing: 0.5 }}>✏️ Subject</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 10, paddingHorizontal: 12, borderWidth: 1.5, borderColor: subject.length > 0 ? '#DD6B20' : '#CBD5E0', marginBottom: 10 }}>
+                  <TouchableOpacity onPress={() => setShowSubjectDropdown(v => !v)}
+                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 11, borderWidth: 1.5, borderColor: subject.length > 0 ? '#DD6B20' : '#CBD5E0', marginBottom: showSubjectDropdown ? 0 : 10 }}>
                     <Ionicons name="pencil" size={16} color={subject.length > 0 ? '#DD6B20' : '#A0AEC0'} style={{ marginRight: 8 }} />
-                    <TextInput style={{ flex: 1, paddingVertical: 11, fontSize: 14, color: '#2D3748', fontWeight: 'bold' as any }} placeholder="e.g. Mathematics" placeholderTextColor="#A0AEC0" value={subject} onChangeText={setSubject} autoCapitalize="words" />
-                    {subject.length > 0 && <TouchableOpacity onPress={() => setSubject('')}><Ionicons name="close-circle" size={18} color="#A0AEC0" /></TouchableOpacity>}
-                  </View>
+                    <Text style={{ flex: 1, fontSize: 14, color: subject.length > 0 ? '#2D3748' : '#A0AEC0', fontWeight: 'bold' as any }}>{subject || 'Select subject'}</Text>
+                    <Ionicons name={showSubjectDropdown ? 'chevron-up' : 'chevron-down'} size={18} color="#A0AEC0" />
+                  </TouchableOpacity>
+                  {showSubjectDropdown && (
+                    <View style={{ backgroundColor: '#FFF', borderWidth: 1.5, borderColor: '#E2E8F0', borderTopWidth: 0, borderBottomLeftRadius: 10, borderBottomRightRadius: 10, marginBottom: 10, maxHeight: 240 }}>
+                      <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                        {subjectOptions.map(opt => (
+                          <TouchableOpacity key={opt} onPress={() => { setSubject(opt); setShowSubjectDropdown(false); if (Platform.OS !== 'web') Haptics.selectionAsync(); }}
+                            style={{ paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 0.5, borderBottomColor: '#EDF2F7', backgroundColor: subject === opt ? '#FFFAF0' : '#FFF' }}>
+                            <Text style={{ fontSize: 13, fontWeight: subject === opt ? '900' : '600' as any, color: subject === opt ? '#DD6B20' : '#2D3748' }}>{opt}</Text>
+                          </TouchableOpacity>
+                        ))}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: '#F7FAFC' }}>
+                          <TextInput style={{ flex: 1, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CBD5E0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13, color: '#2D3748' }}
+                            placeholder="Add another subject..." placeholderTextColor="#A0AEC0" value={newSubjectName} onChangeText={setNewSubjectName} autoCapitalize="characters" />
+                          <TouchableOpacity onPress={addNewSubject} disabled={addingSubject}
+                            style={{ marginLeft: 8, backgroundColor: '#38A169', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9 }}>
+                            {addingSubject ? <ActivityIndicator size="small" color="#FFF" /> : <Text style={{ color: '#FFF', fontWeight: '900' as any, fontSize: 13 }}>Add</Text>}
+                          </TouchableOpacity>
+                        </View>
+                      </ScrollView>
+                    </View>
+                  )}
 
                   {/* GRADE MODE */}
                   <Text style={{ fontSize: 10, fontWeight: '900' as any, color: '#718096', marginBottom: 6, textTransform: 'uppercase' as any, letterSpacing: 0.5 }}>📋 Grading Mode</Text>
