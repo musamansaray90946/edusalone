@@ -29,6 +29,7 @@ export interface BuildReportArgs {
   classSize: number;
   attendance: { present: number; absent: number; late: number };
   ev: any;
+  formTeacherName?: string | null;
   verifyBaseUrl?: string;
 }
 
@@ -315,6 +316,7 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
 
   const promotion = (ev?.promotion_status || 'PENDING');
   const teacherRemark = ev?.teacher_comment || 'No comments provided for this term.';
+  const formTeacher = (args.formTeacherName || ev?.teacher_name || '').toString().trim();
   const studentName = (student.full_name || 'UNKNOWN').toUpperCase();
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
@@ -433,7 +435,7 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
             <div class="sl"><span class="l">Total Obtainable</span><span class="v">${maxObtainable}</span></div>
             <div class="sl"><span class="l">Total Obtained</span><span class="v">${grandTotal}</span></div>
             <div class="sl"><span class="l">Average Pct</span><span class="v">${overallMean}%</span></div>
-            <div class="sl"><span class="l">Class Position</span><span class="v">${ord(myYearRnk)} of ${args.classSize}</span></div>
+            <div class="sl"><span class="l">Class Position</span><span class="v">${ord(myYearRnk)}</span></div>
             <div class="sl"><span class="l">Students in Class</span><span class="v">${args.classSize}</span></div>
             <div class="sl"><span class="l">Exam Board</span><span class="v">${p.examBoard}</span></div>
           </div>
@@ -477,7 +479,7 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
 
         <div class="bottom">
           <div class="sigs">
-            <div class="sig"><div class="lbl">Teacher's Remarks</div><div class="val">${esc(teacherRemark)}</div><div class="line">Sign &amp; Date: ____________________</div></div>
+            <div class="sig"><div class="lbl">Teacher's Remarks</div><div class="val">${esc(teacherRemark)}</div><div class="line">${formTeacher ? 'Class Teacher: ' + esc(formTeacher) : 'Class Teacher: __________________'} &nbsp;•&nbsp; Sign &amp; Date: __________</div></div>
             <div class="sig"><div class="lbl">Principal's Remarks</div><div class="val">&nbsp;</div><div class="line">Sign &amp; Stamp: ____________________</div></div>
           </div>
           <div class="foot">

@@ -701,11 +701,12 @@ async function downloadMyReportCard() {
     }
     setPrinting(true);
     try {
-      const [{ data: classRecords }, { data: classSize }, { data: evalsData }, { data: attendanceData }] = await Promise.all([
+      const [{ data: classRecords }, { data: classSize }, { data: evalsData }, { data: attendanceData }, { data: formTeacher }] = await Promise.all([
         supabase.rpc('get_class_records_for_ranking', { _student_id: studentRecord.id }),
         supabase.rpc('get_class_size', { _student_id: studentRecord.id }),
         supabase.from('student_evaluations').select('*').eq('student_id', studentRecord.id).order('term', { ascending: false }).limit(1),
         supabase.from('daily_attendance').select('status').eq('student_id', studentRecord.id),
+        supabase.from('users').select('full_name').eq('school_id', studentRecord.school_id).eq('assigned_class', studentRecord.current_class).limit(1).maybeSingle(),
       ]);
 
       let present = 0, absent = 0, late = 0;
@@ -723,6 +724,7 @@ async function downloadMyReportCard() {
         classSize: (typeof classSize === 'number' ? classSize : Number(classSize)) || new Set(recs.map(r => r.student_id)).size,
         attendance: { present, absent, late },
         ev: evalsData && evalsData.length > 0 ? evalsData[0] : null,
+        formTeacherName: (formTeacher as any)?.full_name,
       });
 
       if (Platform.OS === 'web') {
