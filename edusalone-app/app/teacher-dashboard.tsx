@@ -15,6 +15,7 @@ import {
   TouchableWithoutFeedback, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AskAI from '../components/AskAI';
 import { supabase } from '../src/lib/supabase';
 
 // ─────────────────────────────────────────────
@@ -203,6 +204,8 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
 
   const startRecording = async () => {
     try {
+      if (recording) { try { await recording.stopAndUnloadAsync(); } catch {} setRecording(null); }
+      if (recording) { try { await recording.stopAndUnloadAsync(); } catch {} setRecording(null); }
       const perm = await Audio.requestPermissionsAsync();
       if (perm.status === 'granted') {
         await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
@@ -246,9 +249,14 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
 
   const handleMessageLongPress = (msg: Message) => {
     if (msg.sender_id !== me.id) return;
+    const doDelete = async () => { setMsgs(prev => prev.filter(m => m.id !== msg.id)); await supabase.from('messages').delete().eq('school_id', me.school_id).eq('id', msg.id); };
+    if (Platform.OS === 'web') {
+      if (window.confirm('Delete this message?')) doDelete();
+      return;
+    }
     Alert.alert('Message Options', '', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => { setMsgs(prev => prev.filter(m => m.id !== msg.id)); await supabase.from('messages').delete().eq('school_id', me.school_id).eq('id', msg.id); } },
+      { text: 'Delete', style: 'destructive', onPress: () => doDelete() },
     ]);
   };
 
@@ -415,10 +423,14 @@ const StudentGradeRow = ({ student, initialGrade, onGradeUpdate, onDelete }: any
       <View style={styles.autoBox}><Text style={[styles.autoText, { color: total > 0 ? gradeColor : '#718096' }]}>{total > 0 ? grade : '-'}</Text></View>
       <View style={[styles.autoBox, { width: 90 }]}><Text style={[styles.autoText, { fontSize: 10, color: '#4A5568' }]}>{total > 0 ? remark : '-'}</Text></View>
       <TouchableOpacity
-        onPress={() => Alert.alert('Clear This Row?', `Remove grades for ${student.users?.full_name}?`, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Clear', style: 'destructive', onPress: () => { setT1(''); setT2(''); setEx(''); setMn(''); setRnk(''); if (onDelete) onDelete(student.id); } },
-        ])}
+        onPress={() => {
+          const clear = () => { setT1(''); setT2(''); setEx(''); setMn(''); setRnk(''); if (onDelete) onDelete(student.id); };
+          if (Platform.OS === 'web') { if (window.confirm(`Clear This Row?\n\nRemove grades for ${student.users?.full_name}?`)) clear(); return; }
+          Alert.alert('Clear This Row?', `Remove grades for ${student.users?.full_name}?`, [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Clear', style: 'destructive', onPress: () => clear() },
+          ]);
+        }}
         style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: '#FFF5F5', alignItems: 'center', justifyContent: 'center', marginLeft: 4 }}>
         <Ionicons name="trash-outline" size={16} color="#E53E3E" />
       </TouchableOpacity>
@@ -475,6 +487,7 @@ export default function TeacherDashboard() {
   const [savedStudentIds, setSavedStudentIds] = useState<string[]>([]);
   const [evalSearchQuery, setEvalSearchQuery] = useState('');
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isAIOpen, setIsAIOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const PAGE_SIZE = 20;
@@ -743,9 +756,14 @@ export default function TeacherDashboard() {
   }
 
   async function deleteMaterial(id: string) {
+    const doDelete = async () => { await supabase.from('learning_materials').delete().eq('id', id); loadMaterials(); };
+    if (Platform.OS === 'web') {
+      if (window.confirm('Delete Material?\n\nThis will remove it permanently.')) doDelete();
+      return;
+    }
     Alert.alert('Delete Material?', 'This will remove it permanently.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => { await supabase.from('learning_materials').delete().eq('id', id); loadMaterials(); } },
+      { text: 'Delete', style: 'destructive', onPress: () => doDelete() },
     ]);
   }
 
@@ -895,20 +913,41 @@ export default function TeacherDashboard() {
     if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     fetchPendingSubjects(); setImpactScore(s => s + 20);
   }
+function confirmApproveSubject() {
+    if (!previewSubject) return;
+    const msg = `Approve all ${previewGrades.length} grades for ${previewSubject}?`;
+    const done = async () => { await approveSubject(previewSubject!); setPreviewSubject(null); setPreviewGrades([]); };
+    if (Platform.OS === 'web') { if (window.confirm(`✅ Approve Grades\n\n${msg}`)) done(); return; }
+    Alert.alert('✅ Approve Grades', msg, [{ text: 'Cancel', style: 'cancel' }, { text: 'Approve', onPress: () => done() }]);
+  }
+
+  function confirmReturnSubject() {
+    if (!previewSubject) return;
+    const msg = `Send ${previewSubject} back for correction?`;
+    if (Platform.OS === 'web') { if (window.confirm(`↩️ Return to Teacher\n\n${msg}`)) rejectSubject(previewSubject!); return; }
+    Alert.alert('↩️ Return to Teacher', msg, [{ text: 'Cancel', style: 'cancel' }, { text: 'Return', style: 'destructive', onPress: () => rejectSubject(previewSubject!) }]);
+  }
 
   async function sendAllToPrincipal() {
     if (approvedSubjects.length === 0) { Alert.alert('Nothing Approved', 'Please approve at least one subject first.'); return; }
-    Alert.alert('Send to Principal?', `Publish ${approvedSubjects.length} approved subject(s) for ${profile.assigned_class || selectedClass}?`, [
+    const msg = `Publish ${approvedSubjects.length} approved subject(s) for ${profile.assigned_class || selectedClass}?`;
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Send to Principal?\n\n${msg}`)) executeSendAllToPrincipal();
+      return;
+    }
+    Alert.alert('Send to Principal?', msg, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Send', onPress: async () => {
-        const myClass = profile.assigned_class || selectedClass;
-        const { data: classStudents } = await supabase.from('students').select('id').eq('school_id', profile.school_id).eq('current_class', myClass);
-        if (!classStudents) return;
-        await supabase.from('academic_records').update({ submission_status: 'published' }).eq('submission_status', 'approved').eq('term', term).eq('academic_year', selectedYear).in('student_id', classStudents.map((s: any) => s.id));
-        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('✅ Sent!', 'Grades published to Principal successfully.'); fetchPendingSubjects(); setImpactScore(s => s + 100);
-      } },
+      { text: 'Send', onPress: () => executeSendAllToPrincipal() },
     ]);
+  }
+
+  async function executeSendAllToPrincipal() {
+    const myClass = profile.assigned_class || selectedClass;
+    const { data: classStudents } = await supabase.from('students').select('id').eq('school_id', profile.school_id).eq('current_class', myClass);
+    if (!classStudents) return;
+    await supabase.from('academic_records').update({ submission_status: 'published' }).eq('submission_status', 'approved').eq('term', term).eq('academic_year', selectedYear).in('student_id', classStudents.map((s: any) => s.id));
+    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert('✅ Sent!', 'Grades published to Principal successfully.'); fetchPendingSubjects(); setImpactScore(s => s + 100);
   }
 
   async function calculateOverallRank() {
@@ -1005,7 +1044,12 @@ export default function TeacherDashboard() {
 
   async function saveEvaluation() {
     if (!evalStudent) return;
-    Alert.alert('Submit Evaluation?', `Save evaluation for ${evalStudent.users?.full_name} (${term} • ${selectedYear})?\n\nPromotion: ${comments.promotion || 'Not set'}`, [
+    const msg = `Save evaluation for ${evalStudent.users?.full_name} (${term} • ${selectedYear})?\n\nPromotion: ${comments.promotion || 'Not set'}`;
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Submit Evaluation?\n\n${msg}`)) executeEvaluation();
+      return;
+    }
+    Alert.alert('Submit Evaluation?', msg, [
       { text: 'Cancel', style: 'cancel' }, { text: 'Submit Evaluation', onPress: () => executeEvaluation() },
     ]);
   }
@@ -1039,7 +1083,12 @@ export default function TeacherDashboard() {
   async function saveAttendance() {
     const absentCount = Object.values(attendanceMap).filter(s => s === 'Absent').length;
     const lateCount = Object.values(attendanceMap).filter(s => s === 'Late').length;
-    Alert.alert('Save Roll Call?', `${selectedClass} on ${formattedDate}.\nPresent: ${students.length - absentCount - lateCount}\nAbsent: ${absentCount}\nLate: ${lateCount}`, [
+    const summary = `${selectedClass} on ${formattedDate}.\nPresent: ${students.length - absentCount - lateCount}\nAbsent: ${absentCount}\nLate: ${lateCount}`;
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Save Roll Call?\n\n${summary}`)) executeAttendance();
+      return;
+    }
+    Alert.alert('Save Roll Call?', summary, [
       { text: 'Cancel', style: 'cancel' }, { text: 'Save Roll Call', onPress: () => executeAttendance() },
     ]);
   }
@@ -1143,12 +1192,12 @@ export default function TeacherDashboard() {
                 })()}
                 <View style={{ marginBottom: 40 }}>
                   <TouchableOpacity style={{ backgroundColor: '#38A169', borderRadius: 14, padding: 18, alignItems: 'center', marginBottom: 12, flexDirection: 'row', justifyContent: 'center' }}
-                    onPress={() => Alert.alert('✅ Approve Grades', `Approve all ${previewGrades.length} grades for ${previewSubject}?`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Approve', onPress: async () => { await approveSubject(previewSubject!); setPreviewSubject(null); setPreviewGrades([]); } }])}>
+                    onPress={confirmApproveSubject}>
                     <Ionicons name="checkmark-circle" size={22} color="#FFF" style={{ marginRight: 8 }} />
                     <Text style={{ color: '#FFF', fontWeight: '900' as any, fontSize: 16 }}>✅ APPROVE ALL GRADES</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={{ backgroundColor: '#E53E3E', borderRadius: 14, padding: 18, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}
-                    onPress={() => Alert.alert('↩️ Return to Teacher', `Send ${previewSubject} back for correction?`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Return', style: 'destructive', onPress: () => rejectSubject(previewSubject!) }])}
+                    onPress={confirmReturnSubject}
                     disabled={rejectingSubject}>
                     {rejectingSubject ? <ActivityIndicator color="#FFF" /> : <><Ionicons name="arrow-undo" size={22} color="#FFF" style={{ marginRight: 8 }} /><Text style={{ color: '#FFF', fontWeight: '900' as any, fontSize: 16 }}>↩️ RETURN TO TEACHER</Text></>}
                   </TouchableOpacity>
@@ -1815,9 +1864,9 @@ export default function TeacherDashboard() {
       {/* ══════════════════════════════════════ */}
       {mode === 'feed' && (
         <ScrollView style={{ flex: 1, paddingHorizontal: 15 }} showsVerticalScrollIndicator={false}>
-          {news.length === 0
+          {news.filter((n: any) => !(n.content || '').toUpperCase().includes('FEE REMINDER')).length === 0
             ? <Text style={styles.emptyText}>No announcements from the Principal yet.</Text>
-            : news.map(n => (
+            : news.filter((n: any) => !(n.content || '').toUpperCase().includes('FEE REMINDER')).map(n => (
                 <View key={n.id} style={{ backgroundColor: '#FFF', padding: 20, borderRadius: 12, marginBottom: 15, borderLeftWidth: 4, borderLeftColor: '#E53E3E', elevation: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
                     <Ionicons name="megaphone" size={20} color="#E53E3E" />
@@ -1841,12 +1890,30 @@ export default function TeacherDashboard() {
         />
       )}
 
+      {/* ── FLOATING ASK-AI BUTTON ── */}
+      <TouchableOpacity
+        style={{ position: 'absolute', bottom: 100, right: 20, backgroundColor: '#6B46C1', width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, zIndex: 9999 }}
+        onPress={() => setIsAIOpen(true)} activeOpacity={0.85}>
+        <Ionicons name="sparkles" size={28} color="#FFF" />
+      </TouchableOpacity>
+
       {/* ── FLOATING CHAT BUTTON ── */}
       <TouchableOpacity
         style={{ position: 'absolute', bottom: 25, right: 20, backgroundColor: '#25D366', width: 62, height: 62, borderRadius: 31, justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, zIndex: 9999 }}
         onPress={() => setIsChatOpen(true)} activeOpacity={0.85}>
         <Ionicons name="logo-whatsapp" size={34} color="#FFF" />
       </TouchableOpacity>
+
+      {/* ── ASK-AI MODAL ── */}
+      <Modal visible={isAIOpen} animationType="slide" onRequestClose={() => setIsAIOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#F0F4F8', paddingTop: Platform.OS === 'android' ? 30 : 40 }}>
+          <TouchableOpacity onPress={() => setIsAIOpen(false)} style={{ padding: 14, flexDirection: 'row', alignItems: 'center' }}>
+            <Ionicons name="arrow-back" size={24} color="#1A365D" />
+            <Text style={{ color: '#1A365D', fontWeight: '900', fontSize: 16, marginLeft: 8 }}>Back</Text>
+          </TouchableOpacity>
+          <AskAI themeColor="#1A365D" />
+        </View>
+      </Modal>
 
       {/* ── CHAT MODAL ── */}
       <Modal visible={isChatOpen} animationType="slide" transparent={false} onRequestClose={() => setIsChatOpen(false)}>

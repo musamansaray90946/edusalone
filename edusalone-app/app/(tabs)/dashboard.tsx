@@ -20,6 +20,7 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AskAI from '../../components/AskAI';
 import { supabase } from '../../src/lib/supabase';
 import ChatTab from './chat';
 
@@ -114,6 +115,7 @@ export default function PrincipalDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isMessengerOpen, setIsMessengerOpen] = useState(false);
+  const [isAIOpen, setIsAIOpen] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isGeneratingRoster, setIsGeneratingRoster] = useState(false);
 
@@ -122,6 +124,7 @@ export default function PrincipalDashboard() {
 
   // Delete student state
   const [deletingStudentId, setDeletingStudentId] = useState<string | null>(null);
+  const [runningAlerts, setRunningAlerts] = useState(false);
 
   const [studentForm, setStudentForm] = useState({ 
     fullName: '', admissionId: '', assignedClass: '', gender: 'Male', birthDate: '' 
@@ -521,6 +524,24 @@ export default function PrincipalDashboard() {
     setIsGeneratingRoster(false);
   }
 
+  async function runAttendanceAlerts() {
+    setRunningAlerts(true);
+    try {
+      const { data, error } = await supabase.rpc('check_attendance_alerts');
+      if (error) throw error;
+      const { data: notifData } = await supabase.from('principal_notifications')
+        .select('*').eq('school_id', profile.school_id)
+        .eq('is_read', false).order('created_at', { ascending: false });
+      setNotifications(notifData || []);
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const msg = `${data ?? 0} alert(s) generated. Scroll up to view them.`;
+      if (Platform.OS === 'web') window.alert(msg); else Alert.alert('Attendance Check Complete', msg);
+    } catch (e: any) {
+      const m = e.message || 'Could not run attendance check.';
+      if (Platform.OS === 'web') window.alert('Error: ' + m); else Alert.alert('Error', m);
+    }
+    setRunningAlerts(false);
+  }
   const handleSecureLogout = async () => {
     const { error } = await supabase.auth.signOut();
     if (!error) router.replace('/login');
@@ -585,6 +606,17 @@ export default function PrincipalDashboard() {
             <Text style={[styles.statVal, { color: SUCCESS_GREEN }]}>SLL {metrics.revenue.toLocaleString()}</Text>
             <Text style={styles.statLab}>Institutional Revenue</Text>
           </View>
+        </View>
+
+        {/* ATTENDANCE CHECK RUNNER */}
+        <View style={[styles.card, { marginTop: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+          <View style={{ flex: 1, paddingRight: 10 }}>
+            <Text style={styles.cardTitle}>📋 Attendance Check</Text>
+            <Text style={{ fontSize: 12, color: '#718096', marginTop: 3 }}>Scan attendance and flag students at risk.</Text>
+          </View>
+          <TouchableOpacity style={{ backgroundColor: SECONDARY_BLUE, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12, minWidth: 110, alignItems: 'center' }} onPress={runAttendanceAlerts} disabled={runningAlerts}>
+            {runningAlerts ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: '#FFF', fontWeight: '900', fontSize: 13 }}>Run Check ▶</Text>}
+          </TouchableOpacity>
         </View>
 
         {/* NOTIFICATIONS BANNER */}
@@ -769,6 +801,26 @@ export default function PrincipalDashboard() {
           {unreadCount > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{unreadCount}</Text></View>}
         </TouchableOpacity>
       )}
+
+      {/* FAB ASK-AI */}
+      {profile && (
+        <TouchableOpacity
+          style={{ position: 'absolute', bottom: 104, right: 25, width: 56, height: 56, borderRadius: 28, backgroundColor: '#6B46C1', justifyContent: 'center', alignItems: 'center', elevation: 8 }}
+          onPress={() => setIsAIOpen(true)}>
+          <Ionicons name="sparkles" size={28} color="#FFF" />
+        </TouchableOpacity>
+      )}
+
+      {/* ASK-AI MODAL */}
+      <Modal visible={isAIOpen} animationType="slide" onRequestClose={() => setIsAIOpen(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
+          <TouchableOpacity onPress={() => setIsAIOpen(false)} style={{ padding: 14, flexDirection: 'row', alignItems: 'center' }}>
+            <Ionicons name="arrow-back" size={24} color={PRIMARY_NAVY} />
+            <Text style={{ color: PRIMARY_NAVY, fontWeight: '900', fontSize: 16, marginLeft: 8 }}>Back</Text>
+          </TouchableOpacity>
+          <AskAI themeColor={PRIMARY_NAVY} />
+        </SafeAreaView>
+      </Modal>
 
       {/* MESSENGER MODAL */}
       <Modal visible={isMessengerOpen} animationType="slide">

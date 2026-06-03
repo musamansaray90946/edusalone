@@ -127,6 +127,7 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
   const [loading, setLoading] = useState(true);
   const [showEmoji, setShowEmoji] = useState(false);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+  const [imgZoom, setImgZoom] = useState(1);
   const flatRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
   
@@ -175,6 +176,8 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
 
   const startRecording = async () => {
       try {
+        if (recording) { try { await recording.stopAndUnloadAsync(); } catch {} setRecording(null); }
+        if (recording) { try { await recording.stopAndUnloadAsync(); } catch {} setRecording(null); }
           const perm = await Audio.requestPermissionsAsync();
           if (perm.status === 'granted') {
               await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
@@ -244,12 +247,14 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
   };
 
   const clearChat = () => {
+      const doClear = async () => {
+          setMsgs([]);
+          await supabase.from('messages').delete().eq('school_id', me.school_id).or(`and(sender_id.eq.${me.id},receiver_id.eq.${contact.id}),and(sender_id.eq.${contact.id},receiver_id.eq.${me.id})`);
+      };
+      if (Platform.OS === 'web') { if (window.confirm(`Clear Chat\n\nDelete all messages with ${contact.full_name}?`)) doClear(); return; }
       Alert.alert('Clear Chat', `Delete all messages with ${contact.full_name}?`, [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: async () => {
-              setMsgs([]);
-              await supabase.from('messages').delete().eq('school_id', me.school_id).or(`and(sender_id.eq.${me.id},receiver_id.eq.${contact.id}),and(sender_id.eq.${contact.id},receiver_id.eq.${me.id})`);
-          }}
+          { text: 'Delete', style: 'destructive', onPress: () => doClear() }
       ]);
   };
 
@@ -263,11 +268,16 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
       >
           <Modal visible={!!fullScreenImage} transparent={true} animationType="fade">
               <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center' }}>
-                  <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 }} onPress={() => setFullScreenImage(null)}>
+                  <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 }} onPress={() => { setFullScreenImage(null); setImgZoom(1); }}>
                       <Ionicons name="close-circle" size={40} color="#FFF" />
                   </TouchableOpacity>
+                  <View style={{ position: 'absolute', bottom: 40, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 30, paddingHorizontal: 10, paddingVertical: 6, zIndex: 10 }}>
+                      <TouchableOpacity onPress={() => setImgZoom(z => Math.max(1, +(z - 0.5).toFixed(1)))} style={{ padding: 8 }}><Ionicons name="remove-circle-outline" size={28} color="#FFF" /></TouchableOpacity>
+                      <Text style={{ color: '#FFF', fontWeight: '900', minWidth: 48, textAlign: 'center' }}>{Math.round(imgZoom * 100)}%</Text>
+                      <TouchableOpacity onPress={() => setImgZoom(z => Math.min(4, +(z + 0.5).toFixed(1)))} style={{ padding: 8 }}><Ionicons name="add-circle-outline" size={28} color="#FFF" /></TouchableOpacity>
+                  </View>
                   <ScrollView maximumZoomScale={3} minimumZoomScale={1} centerContent contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}>
-                      {fullScreenImage && <Image source={{ uri: fullScreenImage }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />}
+                      {fullScreenImage && <Image source={{ uri: fullScreenImage }} style={{ width: '100%', height: '100%', transform: [{ scale: imgZoom }] }} resizeMode="contain" />}
                   </ScrollView>
               </View>
           </Modal>
@@ -313,7 +323,7 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
                                           <View style={[cc.bubble, mine ? cc.bubbleSent : cc.bubbleRecv, item._opt && { opacity: 0.65 }]}>
                                               <View style={mine ? cc.tailRight : cc.tailLeft} />
                                               {isImageMsg(item.content) ? (
-                                                  <TouchableOpacity onPress={() => setFullScreenImage(getImageUrl(item.content))} activeOpacity={0.8}><Image source={{ uri: getImageUrl(item.content) }} style={{ width: 220, height: 220, borderRadius: 8, marginVertical: 4 }} resizeMode="cover" /></TouchableOpacity>
+                                                  <TouchableOpacity onPress={() => { setFullScreenImage(getImageUrl(item.content)); setImgZoom(1); }} activeOpacity={0.8}><Image source={{ uri: getImageUrl(item.content) }} style={{ width: 220, height: 220, borderRadius: 8, marginVertical: 4 }} resizeMode="cover" /></TouchableOpacity>
                                               ) : isAudioMsg(item.content) ? (
                                                   <AudioMessagePlayer url={getAudioUrl(item.content)} mine={mine} />
                                               ) : <Text style={cc.msgTxt} selectable>{item.content}</Text>}

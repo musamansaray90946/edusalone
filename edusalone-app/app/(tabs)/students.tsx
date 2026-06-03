@@ -4,6 +4,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { buildReportCardHTML } from '../../src/lib/reportCard';
 import { supabase } from '../../src/lib/supabase';
 
 // 🌟 ENTERPRISE: DYNAMIC SCHOOL THEME HASH FUNCTION
@@ -122,45 +123,45 @@ export default function StudentsScreen() {
     const classStudents = students.filter(s => s.current_class === className);
     const ids = classStudents.map(s => s.id);
     if (ids.length === 0) { Alert.alert('Notice', `No students found in ${className}.`); return; }
-    Alert.alert(
-      publish ? `📢 Publish All in ${className}?` : `🔒 Unpublish All in ${className}?`,
-      `${publish ? 'Allow' : 'Remove'} report card access for ${ids.length} student${ids.length !== 1 ? 's' : ''} in ${className}.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: publish ? 'Yes, Publish All' : 'Yes, Unpublish All', onPress: async () => {
-            setPublishingClass(className);
-            try {
-              const { error } = await supabase.from('students').update({ report_published: publish }).in('id', ids);
-              if (error) throw error;
-              if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              Alert.alert('Done! ✅', `${ids.length} student${ids.length !== 1 ? 's' : ''} in ${className} ${publish ? 'can now access' : 'can no longer see'} their report cards.`);
-              fetchStudents();
-            } catch (e: any) { Alert.alert('Error', e.message); }
-            setPublishingClass(null);
-        }}
-      ]
-    );
+    const title = publish ? `📢 Publish All in ${className}?` : `🔒 Unpublish All in ${className}?`;
+    const msg = `${publish ? 'Allow' : 'Remove'} report card access for ${ids.length} student${ids.length !== 1 ? 's' : ''} in ${className}.`;
+    const doPublish = async () => {
+      setPublishingClass(className);
+      try {
+        const { error } = await supabase.from('students').update({ report_published: publish }).in('id', ids);
+        if (error) throw error;
+        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Done! ✅', `${ids.length} student${ids.length !== 1 ? 's' : ''} in ${className} ${publish ? 'can now access' : 'can no longer see'} their report cards.`);
+        fetchStudents();
+      } catch (e: any) { Alert.alert('Error', e.message); }
+      setPublishingClass(null);
+    };
+    if (Platform.OS === 'web') { if (window.confirm(`${title}\n\n${msg}`)) doPublish(); return; }
+    Alert.alert(title, msg, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: publish ? 'Yes, Publish All' : 'Yes, Unpublish All', onPress: () => doPublish() },
+    ]);
   }
   // 🌟 NEW: PUBLISH REPORT CARD LOGIC
   async function togglePublishReport(studentId: string, currentStatus: boolean, studentName: string) {
     const newStatus = !currentStatus;
-    Alert.alert(
-      newStatus ? "Publish Report Card?" : "Hide Report Card?",
-      newStatus ? `Allow ${studentName} and their parents to download this term's report card?` : `Hide the report card from ${studentName}'s dashboard?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: newStatus ? "Yes, Publish" : "Yes, Hide", onPress: async () => {
-            setPublishingId(studentId);
-            try {
-              const { error } = await supabase.from('students').update({ report_published: newStatus }).eq('id', studentId);
-              if (error) throw error;
-              if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              fetchStudents(); // Refresh the list instantly
-            } catch(e: any) { Alert.alert("Error", e.message); }
-            setPublishingId(null);
-        }}
-      ]
-    );
+    const title = newStatus ? "Publish Report Card?" : "Hide Report Card?";
+    const msg = newStatus ? `Allow ${studentName} and their parents to download this term's report card?` : `Hide the report card from ${studentName}'s dashboard?`;
+    const doToggle = async () => {
+      setPublishingId(studentId);
+      try {
+        const { error } = await supabase.from('students').update({ report_published: newStatus }).eq('id', studentId);
+        if (error) throw error;
+        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        fetchStudents();
+      } catch(e: any) { Alert.alert("Error", e.message); }
+      setPublishingId(null);
+    };
+    if (Platform.OS === 'web') { if (window.confirm(`${title}\n\n${msg}`)) doToggle(); return; }
+    Alert.alert(title, msg, [
+      { text: "Cancel", style: "cancel" },
+      { text: newStatus ? "Yes, Publish" : "Yes, Hide", onPress: () => doToggle() },
+    ]);
   }
 
   async function generateMasterRosterPDF() {
@@ -270,316 +271,32 @@ export default function StudentsScreen() {
     setPrintingRoster(false);
   }
 
-  async function generatePDFReportCard(student: any) {
+async function generatePDFReportCard(student: any) {
     setPrintingId(student.id);
     try {
-      const { data: grades } = await supabase.from('academic_records').select('*').eq('student_id', student.id);
-      const { data: evalsData } = await supabase.from('student_evaluations').select('*').eq('student_id', student.id).order('term', { ascending: false }).limit(1);
-      const { data: attendanceData } = await supabase.from('daily_attendance').select('status').eq('student_id', student.id);
-      
-      let presentCount = 0; let absentCount = 0; let lateCount = 0;
-      if (attendanceData) {
-        attendanceData.forEach((record: any) => { if (record.status === 'Present') presentCount++; else if (record.status === 'Absent') absentCount++; else if (record.status === 'Late') lateCount++; });
-      }
+      const [{ data: classRecords }, { data: classSize }, { data: evalsData }, { data: attendanceData }] = await Promise.all([
+        supabase.rpc('get_class_records_for_ranking', { _student_id: student.id }),
+        supabase.rpc('get_class_size', { _student_id: student.id }),
+        supabase.from('student_evaluations').select('*').eq('student_id', student.id).order('term', { ascending: false }).limit(1),
+        supabase.from('daily_attendance').select('status').eq('student_id', student.id),
+      ]);
 
-      const ev = evalsData && evalsData.length > 0 ? evalsData[0] : null;
-      const subjectMap: any = {};
-      if (grades) {
-        grades.forEach((g: any) => {
-          if (!subjectMap[g.subject]) { subjectMap[g.subject] = { First: null, Second: null, Third: null }; }
-          if (g.term.includes('First')) subjectMap[g.subject].First = g;
-          if (g.term.includes('Second')) subjectMap[g.subject].Second = g;
-          if (g.term.includes('Third')) subjectMap[g.subject].Third = g;
-        });
-      }
+      let present = 0, absent = 0, late = 0;
+      (attendanceData || []).forEach((r: any) => { if (r.status === 'Present') present++; else if (r.status === 'Absent') absent++; else if (r.status === 'Late') late++; });
 
-      let gradesHtml = ''; let grandTotalScore = 0; let maxPossibleGrandTotal = 0;
-      const subjects = Object.keys(subjectMap);
-      
-      if (subjects.length > 0) {
-        subjects.forEach((sub) => {
-          const t1 = subjectMap[sub].First; const t2 = subjectMap[sub].Second; const t3 = subjectMap[sub].Third;
+      const recs = (classRecords || []) as any[];
+      const mine = recs.filter(r => r.student_id === student.id);
+      const reportYear = (mine.find(r => r.academic_year)?.academic_year) || '2025/2026';
 
-          const t1Test1 = t1 && t1.test_1 != null ? t1.test_1 : '-'; const t1Test2 = t1 && t1.test_2 != null ? t1.test_2 : '-'; const t1Exam  = t1 && t1.exam != null ? t1.exam : '-'; const t1Score = t1 && t1.score != null ? t1.score : '-';
-          const t2Test1 = t2 && t2.test_1 != null ? t2.test_1 : '-'; const t2Test2 = t2 && t2.test_2 != null ? t2.test_2 : '-'; const t2Exam  = t2 && t2.exam != null ? t2.exam : '-'; const t2Score = t2 && t2.score != null ? t2.score : '-';
-          const t3Test1 = t3 && t3.test_1 != null ? t3.test_1 : '-'; const t3Test2 = t3 && t3.test_2 != null ? t3.test_2 : '-'; const t3Exam  = t3 && t3.exam != null ? t3.exam : '-'; const t3Score = t3 && t3.score != null ? t3.score : '-';
-
-          const t1ScoreNum = t1 && t1.score != null ? Number(t1.score) : 0; const t2ScoreNum = t2 && t2.score != null ? Number(t2.score) : 0; const t3ScoreNum = t3 && t3.score != null ? Number(t3.score) : 0;
-          const yearlyTotal = t1ScoreNum + t2ScoreNum + t3ScoreNum;
-          
-          let termsTaken = 0; if (t1 && t1.score != null) termsTaken++; if (t2 && t2.score != null) termsTaken++; if (t3 && t3.score != null) termsTaken++;
-          const meanNum = termsTaken > 0 ? (yearlyTotal / termsTaken) : 0;
-          const meanStr = termsTaken > 0 ? meanNum.toFixed(1) : '-';
-          grandTotalScore += yearlyTotal; maxPossibleGrandTotal += (termsTaken * 100); 
-
-          const isJSSClass = (student.current_class || '').toUpperCase().includes('JSS');
-          let finalGrade = isJSSClass ? '6' : 'F9';
-          let finalRemark = 'FAIL'; let gClass = 'g-fail';
-          if (isJSSClass) {
-            if (meanNum >= 75) { finalGrade = '1'; finalRemark = 'EXCELLENT'; gClass = 'g-pass'; }
-            else if (meanNum >= 65) { finalGrade = '2'; finalRemark = 'V. GOOD'; gClass = 'g-pass'; }
-            else if (meanNum >= 55) { finalGrade = '3'; finalRemark = 'GOOD'; gClass = 'g-pass'; }
-            else if (meanNum >= 45) { finalGrade = '4'; finalRemark = 'CREDIT'; gClass = 'g-pass'; }
-            else if (meanNum >= 35) { finalGrade = '5'; finalRemark = 'PASS'; gClass = 'g-pass'; }
-          } else {
-            if (meanNum >= 75) { finalGrade = 'A1'; finalRemark = 'EXCELLENT'; gClass = 'g-pass'; }
-            else if (meanNum >= 70) { finalGrade = 'B2'; finalRemark = 'VERY GOOD'; gClass = 'g-pass'; }
-            else if (meanNum >= 65) { finalGrade = 'B3'; finalRemark = 'GOOD'; gClass = 'g-pass'; }
-            else if (meanNum >= 60) { finalGrade = 'C4'; finalRemark = 'CREDIT'; gClass = 'g-pass'; }
-            else if (meanNum >= 55) { finalGrade = 'C5'; finalRemark = 'CREDIT'; gClass = 'g-pass'; }
-            else if (meanNum >= 50) { finalGrade = 'C6'; finalRemark = 'CREDIT'; gClass = 'g-pass'; }
-            else if (meanNum >= 45) { finalGrade = 'D7'; finalRemark = 'PASS'; gClass = 'g-pass'; }
-            else if (meanNum >= 40) { finalGrade = 'E8'; finalRemark = 'PASS'; gClass = 'g-pass'; }
-          }
-
-          gradesHtml += `
-            <tr>
-              <td class="subj-cell">${sub}</td><td>100</td>
-              <td>${t1Test1}</td><td>${t1Test2}</td><td>${t1Exam}</td><td style="font-weight:bold;">${t1Score}</td><td>${t1?.mean||t1Score}</td><td>${t1?.rank||'-'}</td>
-              <td>${t2Test1}</td><td>${t2Test2}</td><td>${t2Exam}</td><td style="font-weight:bold;">${t2Score}</td><td>${t2?.mean||t2Score}</td><td>${t2?.rank||'-'}</td>
-              <td>${t3Test1}</td><td>${t3Test2}</td><td>${t3Exam}</td><td style="font-weight:bold;">${t3Score}</td><td>${t3?.mean||t3Score}</td><td>${t3?.rank||'-'}</td>
-              <td style="font-weight:bold; background-color: #FFFAF0;">${termsTaken > 0 ? yearlyTotal : '-'}</td><td style="font-weight:bold; background-color: #FFFAF0;">${meanStr}</td><td>-</td> 
-              <td class="${gClass}" style="font-weight:bold; font-size: 8px;">${termsTaken > 0 ? finalGrade : '-'}</td>
-              <td class="${gClass}" style="font-size: 6px; font-weight: 900; letter-spacing: 0.5px; white-space: nowrap;">${termsTaken > 0 ? finalRemark : '-'}</td>
-            </tr>
-          `;
-        });
-      } else { gradesHtml = `<tr><td colspan="25" style="text-align:center; padding: 20px;">No academic records found for this student.</td></tr>`; }
-
-      const overallPercentageNum = maxPossibleGrandTotal > 0 ? (grandTotalScore / maxPossibleGrandTotal) * 100 : 0;
-      const overallPercentageStr = maxPossibleGrandTotal > 0 ? overallPercentageNum.toFixed(1) : '0';
-
-      const themeColor = getSchoolThemeColor(school?.name);
-      const goldColor = '#D4AF37';
-      const logoHtml = school?.logo_url ? `<img src="${school.logo_url}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />` : `<span style="font-size:8px; font-weight:bold; color:${themeColor};">LOGO</span>`;
-      
-      const rawStudentName = student.users?.full_name || 'UNKNOWN';
-      const studentNameObj = rawStudentName.toUpperCase();
-
-      const verificationText = `EDUSALONE VERIFIED ACADEMIC RECORD\n----------------------------------\nSchool: ${school?.name || 'Unknown'}\nStudent: ${studentNameObj}\nAdmission No: ${student.admission_number || 'N/A'}\nClass: ${student.current_class}\nOverall Score: ${overallPercentageStr}%\n\nAuthenticity: VERIFIED ✅`;
-      const encodedQrData = encodeURIComponent(verificationText);
-      const hexColor = themeColor.replace('#', '');
-      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodedQrData}&color=${hexColor}&bgcolor=FFFFFF`;
-
-      function getTraitRow(traitName: string, value: number | undefined) { 
-        const v = value || 0; 
-        const cMap: any = {1:"#cc2200", 2:"#dd6600", 3:"#ddaa00", 4:"#3182CE", 5:"#38A169"};
-        let dots = "";
-        for(let i=1; i<=5; i++){
-          const active = v === i;
-          dots += `<div class="dot" style="${active ? `background:${cMap[i]};border-color:${cMap[i]};` : ""}"><span style="color:#fff;font-size:7px;">${active?'✓':''}</span></div><span style="width:2px;display:inline-block;"></span>`;
-        }
-        return `<div class="trait-row"><span class="trait-name">${traitName}</span><div class="trait-rating">${dots}</div></div>`;
-      }
-
-      function getSkillRow(skillName: string, value: number | undefined) { 
-        const v = value || 0; 
-        const cMap: any = {1:"#E53E3E", 2:"#DD6B20", 3:"#D69E2E", 4:"#3182CE", 5:"#38A169"};
-        let bars = "";
-        for(let i=1; i<=5; i++){
-          const active = v >= i && v > 0;
-          bars += `<div class="bar-seg" style="${active ? `background:${cMap[v]};border-color:${cMap[v]};` : ''}"></div>`;
-        }
-        return `<div class="skill-row"><span class="skill-name">${skillName}</span><div class="skill-bars">${bars}</div><span class="skill-score" style="color:${themeColor}">${v>0?v:'—'}</span></div>`;
-      }
-
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-        <meta charset="UTF-8"/>
-        <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-        <style>
-          @page { size: A4 portrait; margin: 10mm; } 
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 8px; background: #FFFCF5; padding: 0; width: 190mm; margin: auto; }
-          
-          .premium-wrapper { border: 5px solid ${themeColor}; padding: 15px; position: relative; background: #fff; box-shadow: inset 0 0 0 2px ${goldColor}; min-height: 270mm; overflow: hidden; }
-          .watermark { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); font-size: 80px; color: rgba(212, 175, 55, 0.05); font-weight: 900; z-index: 0; text-align: center; pointer-events: none; text-transform: uppercase; line-height: 1.2; }
-
-          .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px double ${goldColor}; padding-bottom: 8px; margin-bottom: 10px; position: relative; z-index: 10; }
-          .logo { width: 55px; height: 55px; border: 2px solid ${themeColor}; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; overflow:hidden; background: #fff; }
-          .hdr-center { text-align: center; flex: 1; padding: 0 5px; }
-          .hdr-center h1 { font-size: 16px; font-weight: 900; color: ${themeColor}; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 2px; }
-          .hdr-center .addr { font-size: 8px; color: #4A5568; margin-top: 2px; font-weight: bold; }
-          .report-title { background: linear-gradient(135deg, ${themeColor}, ${goldColor}); color: #fff; text-align: center; font-size: 11px; font-weight: 900; padding: 6px 0; margin-bottom: 8px; border-radius: 4px; letter-spacing: 1.5px; position: relative; z-index: 10; border: 1px solid ${themeColor}; }
-          
-          .top-info { display: grid; grid-template-columns: 1.3fr 1fr 1fr; border: 1.5px solid ${goldColor}; margin-bottom: 8px; border-radius: 4px; overflow: hidden; position: relative; z-index: 10; background: #fff; }
-          .info-block { border-right: 1px solid ${goldColor}; }
-          .info-block:last-child { border-right: none; }
-          .blk-header { background: ${themeColor}; color: #fff; font-weight: bold; font-size: 8px; text-align: center; padding: 3px; border-bottom: 1px solid ${goldColor}; }
-          .info-tbl { width: 100%; border-collapse: collapse; }
-          .info-tbl td { padding: 3px 4px; border-bottom: 1px solid #edf2f7; font-size: 7.5px; }
-          .info-tbl td:first-child { font-weight: bold; color: ${themeColor}; width: 40%; background: #FFFCF5; border-right: 1px solid #edf2f7; }
-          .att-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; text-align: center; height: 100%; align-content: center; }
-          .att-grid .ah { font-weight: bold; font-size: 7px; color: ${themeColor}; background: #FFFCF5; border-bottom: 1px solid #edf2f7; padding: 3px; }
-          .att-grid .av { font-size: 10px; font-weight: bold; padding: 4px; color: #2D3748; }
-          
-          .score-line { display: flex; justify-content: space-between; padding: 4px 6px; border-bottom: 1px solid #edf2f7; font-size: 8px; }
-          .score-line .sl { font-weight: bold; color: #4a5568; }
-          .score-line .sv { font-weight: 900; color: ${themeColor}; }
-          
-          .acad-tbl { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 8px; border: 1.5px solid ${goldColor}; border-radius: 4px; overflow: hidden; position: relative; z-index: 10; background: #fff; }
-          .acad-tbl th, .acad-tbl td { border: 1px solid #cbd5e0; text-align: center; padding: 3px 1px; font-size: 7px; overflow: hidden; }
-          .acad-tbl th { background: ${themeColor}; font-weight: bold; color: #FFF; border-bottom: 2px solid ${goldColor}; }
-          .acad-tbl .subj-cell { text-align: left; padding-left: 4px; font-weight: 900; font-size: 6.5px; width: 14%; color: ${themeColor}; background: #FFFCF5; border-right: 1px solid ${goldColor}; }
-          .acad-tbl tbody tr:nth-child(even) { background: #F7FAFC; }
-          
-          .g-pass { color: #3182CE; font-weight: 900; } 
-          .g-fail { color: #E53E3E; font-weight: 900; }
-          
-          .keys-bar { display: grid; grid-template-columns: repeat(5, 1fr); border: 1.5px solid ${goldColor}; margin-bottom: 8px; border-radius: 4px; overflow: hidden; position: relative; z-index: 10; }
-          .key-cell { text-align: center; padding: 4px; font-size: 6.5px; font-weight: bold; color: #fff; border-right: 1px solid rgba(255,255,255,0.3); }
-          .k-exc { background: ${themeColor}; } .k-vg { background: #4A5568; } .k-g { background: #2b6cb0; } .k-sat { background: #4299e1; } .k-fai { background: #e53e3e; border:none; }
-          
-          .bottom-section { display: grid; grid-template-columns: 1fr 1fr; border: 1.5px solid ${goldColor}; border-radius: 4px; margin-bottom: 8px; overflow: hidden; position: relative; z-index: 10; background: #fff; }
-          .bottom-panel { border-right: 1px solid ${goldColor}; }
-          .panel-header { display: flex; align-items: center; gap: 4px; background: ${themeColor}; color: #fff; padding: 4px 6px; font-weight: bold; font-size: 8px; border-bottom: 1px solid ${goldColor}; }
-          
-          .trait-row, .skill-row { display: flex; align-items: center; padding: 3px 6px; border-bottom: 1px solid #e2e8f0; min-height: 16px; }
-          .trait-row:nth-child(odd), .skill-row:nth-child(odd) { background: #FFFCF5; }
-          .trait-name, .skill-name { flex: 1; font-size: 7.5px; font-weight: bold; color: #2d3748; }
-          .trait-rating { display: flex; gap: 2px; }
-          .dot { width: 11px; height: 11px; border-radius: 50%; border: 1px solid #a0aec0; background: #fff; display: flex; align-items: center; justify-content: center; }
-          .skill-bars { display: flex; gap: 1px; align-items: center; }
-          .bar-seg { width: 14px; height: 6px; border-radius: 1px; border: 1px solid #cbd5e0; background: #edf2f7; }
-          .skill-score { font-size: 7.5px; font-weight: bold; min-width: 16px; text-align: right; margin-right: 4px; }
-          
-          .signatures-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px; margin-bottom: 10px; position: relative; z-index: 10; }
-          .sign-box { border: 1.5px solid ${goldColor}; padding: 12px; border-radius: 8px; background: #FFFCF5; }
-          .cmt-label { font-weight: 900; font-size: 8.5px; color: ${themeColor}; text-transform: uppercase; margin-bottom: 8px; border-bottom: 1px solid ${goldColor}; padding-bottom: 4px; letter-spacing: 0.5px; }
-          .cmt-value { font-size: 8.5px; font-weight: bold; font-style: italic; color: #2d3748; min-height: 35px; }
-          .sign-line { margin-top: 30px; border-top: 1px dashed ${themeColor}; width: 85%; padding-top: 4px; font-size: 8px; font-weight: bold; color: #4a5568; }
-          
-          .footer-section { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; position: relative; z-index: 10; }
-          .promotion-banner { border: 2px solid ${goldColor}; padding: 8px; text-align: center; font-weight: 900; font-size: 10px; color: #fff; background: ${themeColor}; flex: 1; margin-right: 15px; border-radius: 6px; letter-spacing: 1px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-          .qr-box { width: 60px; height: 60px; border: 2px solid ${goldColor}; padding: 2px; border-radius: 4px; background: #fff; }
-        </style>
-        </head>
-        <body>
-          <div class="premium-wrapper">
-            <div class="watermark">${school?.name || 'EDUSALONE'}<br/>${school?.school_code || 'VERIFIED'}<br/>OFFICIAL</div>
-            
-            <div class="header">
-              <div class="logo">${logoHtml}</div>
-              <div class="hdr-center">
-                <h1>${school?.name || 'School Name'}</h1>
-                <p class="addr">Sierra Leone's Premier Institution</p>
-                <p class="motto" style="color:${goldColor}; font-style:italic;">Knowledge, Courage & Excellence</p>
-              </div>
-              <div class="logo">${logoHtml}</div>
-            </div>
-            
-            <div class="report-title">${(student.current_class || '').toUpperCase().includes('JSS') ? 'JUNIOR SECONDARY SCHOOL' : 'SENIOR SECONDARY SCHOOL'} — PROGRESS REPORT 2024/2025</div>
-            
-            <div class="top-info">
-              <div class="info-block">
-                <div class="blk-header">STUDENT'S PERSONAL DATA</div>
-                <table class="info-tbl">
-                  <tr><td>Name</td><td style="font-weight:900;">${student.users?.full_name?.toUpperCase() || 'UNKNOWN'}</td></tr>
-                  <tr><td>Sex</td><td>${student.gender || '-'}</td></tr>
-                  <tr><td>Date of Birth</td><td>${student.date_of_birth || '-'}</td></tr>
-                  <tr><td>Form</td><td style="font-weight:bold;">${student.current_class}</td></tr>
-                  <tr><td>Admission No.</td><td style="color:${themeColor}; font-weight:bold;">${student.admission_number}</td></tr>
-                </table>
-              </div>
-              <div class="info-block">
-                <div class="blk-header">ATTENDANCE</div>
-                <div class="att-grid">
-                  <div class="ah">Late</div><div class="ah">Present</div><div class="ah">Absent</div>
-                  <div class="av">${lateCount}</div><div class="av" style="color:#38A169;">${presentCount}</div><div class="av" style="color:#E53E3E;">${absentCount}</div>
-                </div>
-              </div>
-              <div class="info-block score-blk" style="border-right:none;">
-                <div class="blk-header">SCORE SUMMARY</div>
-                <div class="score-line"><span class="sl">Total Obtainable</span><span class="sv">${maxPossibleGrandTotal}</span></div>
-                <div class="score-line"><span class="sl">Total Obtained</span><span class="sv">${grandTotalScore}</span></div>
-                <div class="score-line"><span class="sl" style="color:${themeColor}; font-weight:900;">Average Pct</span><span class="sv" style="font-size:10px;">${overallPercentageStr}%</span></div>
-                <div class="score-line"><span class="sl">Class Position</span><span class="sv">${student.overall_rank || 'N/A'}</span></div>
-                <div class="score-line"><span class="sl">Exam Board</span><span class="sv">${(student.current_class||'').toUpperCase().includes('JSS') ? 'BECE/WAEC' : 'WASSCE/WAEC'}</span></div>
-              </div>
-            </div>
-            
-            <table class="acad-tbl">
-              <colgroup>
-                <col style="width:16%"><col style="width:3%">
-                <col style="width:2.5%"><col style="width:2.5%"><col style="width:2.5%"><col style="width:3.5%"><col style="width:3.5%"><col style="width:2.5%">
-                <col style="width:2.5%"><col style="width:2.5%"><col style="width:2.5%"><col style="width:3.5%"><col style="width:3.5%"><col style="width:2.5%">
-                <col style="width:2.5%"><col style="width:2.5%"><col style="width:2.5%"><col style="width:3.5%"><col style="width:3.5%"><col style="width:2.5%">
-                <col style="width:4%"><col style="width:4%"><col style="width:3%"><col style="width:4%"><col style="width:15%">
-              </colgroup>
-              <thead>
-                <tr>
-                  <th rowspan="2" class="subj-cell" style="color:#fff; background:${themeColor}; border-right:1px solid #fff;">SUBJECT</th><th rowspan="2">MAX</th>
-                  <th colspan="6" style="border-left: 2px solid ${goldColor};">FIRST TERM</th><th colspan="6" style="border-left: 2px solid ${goldColor};">SECOND TERM</th><th colspan="6" style="border-left: 2px solid ${goldColor};">THIRD TERM</th><th colspan="5" style="border-left: 2px solid ${goldColor};">YEARLY SUMMARY</th>
-                </tr>
-                <tr>
-                  <th style="border-left: 2px solid ${goldColor};">T1</th><th>T2</th><th>EX</th><th>TOT</th><th>MN</th><th>RNK</th>
-                  <th style="border-left: 2px solid ${goldColor};">T3</th><th>T4</th><th>EX</th><th>TOT</th><th>MN</th><th>RNK</th>
-                  <th style="border-left: 2px solid ${goldColor};">T5</th><th>T6</th><th>EX</th><th>TOT</th><th>MN</th><th>RNK</th>
-                  <th style="border-left: 2px solid ${goldColor};">TOT</th><th>MEAN</th><th>RNK</th><th>GRD</th><th>REM</th>
-                </tr>
-              </thead>
-              <tbody>${gradesHtml}</tbody>
-            </table>
-            
-            <div class="keys-bar">
-              ${(student.current_class || '').toUpperCase().includes('JSS') ? `
-                <div class="key-cell k-exc">75–100: Grd 1 EXCELLENT</div>
-                <div class="key-cell k-vg">65–74: Grd 2 V.GOOD</div>
-                <div class="key-cell k-g">45–64: Grd 3/4 CREDIT</div>
-                <div class="key-cell k-sat">35–44: Grd 5 PASS</div>
-                <div class="key-cell k-fai">0–34: Grd 6 FAIL</div>
-              ` : `
-                <div class="key-cell k-exc">75–100: A1 EXCELLENT</div>
-                <div class="key-cell k-vg">65–74: B2/B3 GOOD</div>
-                <div class="key-cell k-g">50–64: C4–C6 CREDIT</div>
-                <div class="key-cell k-sat">40–49: D7/E8 PASS</div>
-                <div class="key-cell k-fai">0–39: F9 FAIL</div>
-              `}
-            </div>
-            
-            <div class="bottom-section">
-              <div class="bottom-panel">
-                <div class="panel-header">AFFECTIVE TRAITS</div>
-                ${getTraitRow('Attentiveness', ev?.attentiveness)}${getTraitRow('Attitude to Work', ev?.attitude)}${getTraitRow('Cooperation', ev?.cooperation)}${getTraitRow('Neatness', ev?.neatness)}${getTraitRow('Politeness', ev?.politeness)}${getTraitRow('Punctuality', ev?.punctuality)}
-              </div>
-              <div class="bottom-panel" style="border-right:none;">
-                <div class="panel-header">PSYCHOMOTOR SKILLS</div>
-                ${getSkillRow('Drawing & Painting', ev?.drawing_painting)}
-                ${getSkillRow('Handling of Tools', ev?.handling_tools)}
-                ${getSkillRow('Games & Sports', ev?.games)}
-                ${getSkillRow('Handwriting', ev?.handwriting)}
-                ${getSkillRow('Music', ev?.music)}
-                ${getSkillRow('Verbal Fluency', ev?.verbal_fluency)}
-              </div>
-            </div>
-            
-            <div class="signatures-grid">
-              <div class="sign-box">
-                <div class="cmt-label">Teacher's Remarks</div>
-                <div class="cmt-value">${ev?.teacher_comment || 'No comments provided for this term.'}</div>
-                <div class="sign-line">Sign & Date: _________________________</div>
-              </div>
-              <div class="sign-box">
-                <div class="cmt-label">Principal's Remarks</div>
-                <div class="cmt-value"></div>
-                <div class="sign-line">Sign & Stamp: _________________________</div>
-              </div>
-            </div>
-            
-            <div class="footer-section">
-              <div class="promotion-banner">PROMOTION STATUS: ${ev?.promotion_status || 'PENDING'}</div>
-              <img src="${qrCodeUrl}" class="qr-box" />
-            </div>
-            
-            <div style="text-align:center; font-size:7px; color:#A0AEC0; margin-top:8px; font-style:italic; border-top: 1px solid #E2E8F0; padding-top: 4px; z-index:10; position:relative;">
-              Official Digital Document • Securely Generated by EduSalone on ${new Date().toLocaleString()} • Any physical or digital alteration invalidates this statement.
-            </div>
-          </div>
-        </body>
-        </html>
-      `;
+      const htmlContent = buildReportCardHTML({
+        school: { name: school?.name, logo_url: school?.logo_url, school_code: school?.school_code },
+        student: { id: student.id, full_name: student.users?.full_name, gender: student.gender, date_of_birth: student.date_of_birth, admission_number: student.admission_number, current_class: student.current_class },
+        academicYear: reportYear,
+        classRecords: recs,
+        classSize: (typeof classSize === 'number' ? classSize : Number(classSize)) || new Set(recs.map(r => r.student_id)).size,
+        attendance: { present, absent, late },
+        ev: evalsData && evalsData.length > 0 ? evalsData[0] : null,
+      });
 
       if (Platform.OS === 'web') {
         const printWindow = window.open('', '_blank');
@@ -589,7 +306,7 @@ export default function StudentsScreen() {
         await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
       }
     } catch (err: any) {
-      Alert.alert('Error', 'Could not generate Roster PDF.');
+      Alert.alert('Error', 'Could not generate Report Card.');
     }
     setPrintingId(null);
   }
@@ -741,7 +458,10 @@ export default function StudentsScreen() {
               {printingId === item.id ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.printButtonText}>PDF</Text>}
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => Alert.alert('Delete Student?', `Remove ${item.users?.full_name}?`,[{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => deleteStudent(item.user_id) }])} style={styles.deleteButton}>
+            <TouchableOpacity onPress={() => {
+              if (Platform.OS === 'web') { if (window.confirm(`Delete Student?\n\nRemove ${item.users?.full_name}?`)) deleteStudent(item.user_id); return; }
+              Alert.alert('Delete Student?', `Remove ${item.users?.full_name}?`,[{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => deleteStudent(item.user_id) }]);
+            }} style={styles.deleteButton}>
               <Ionicons name="trash-outline" size={22} color="#E53E3E" />
             </TouchableOpacity>
           </View>
