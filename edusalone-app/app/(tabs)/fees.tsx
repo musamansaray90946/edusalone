@@ -251,7 +251,7 @@ export default function FeesScreen() {
     setPrintingId(null);
   }
 
-  async function generateReceiptPDF(transaction: any) {
+async function generateReceiptPDF(transaction: any) {
     setPrintingId(transaction.id);
     try {
       const amountFormatted = formatCurrency(transaction.amount_paid_sll);
@@ -260,7 +260,29 @@ export default function FeesScreen() {
       const studentClass = transaction.students?.current_class || 'N/A';
       const studentAdm = transaction.students?.admission_number || 'N/A';
 
-      // ✅ FIXED: Show logo if it exists (removed startsWith check)
+      // ---- Full fee summary (reuses the same data the on-screen ledger uses) ----
+      // Find this student's expected fee and ALL their payments, so the receipt
+      // shows Expected, Total Paid So Far, Balance Remaining, and every payment.
+      const studentRow = students.find(s => s.id === transaction.student_id);
+      const expectedFee = Number(studentRow?.expected_fee) || 0;
+      const allPayments = transactions.filter(t => t.student_id === transaction.student_id);
+      const totalPaid = allPayments.reduce((sum, t) => sum + Number(t.amount_paid_sll), 0);
+      const balance = expectedFee - totalPaid;
+      const balanceColor = balance <= 0 ? '#22543D' : '#C53030';
+      const balanceLabel = balance <= 0 ? 'FULLY PAID' : 'BALANCE REMAINING';
+      const balanceShown = balance <= 0 ? formatCurrency(0) : formatCurrency(balance);
+
+      // Every payment, oldest first, as a mini statement
+      const historyRows = [...allPayments]
+        .sort((a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime())
+        .map(t => `
+          <tr>
+            <td>${new Date(t.payment_date).toLocaleDateString('en-GB')}</td>
+            <td style="font-weight:bold;color:#2B6CB0;">${t.receipt_number || '-'}</td>
+            <td>${t.payment_method || '-'}</td>
+            <td style="text-align:right;font-weight:900;color:#22543D;">${formatCurrency(Number(t.amount_paid_sll))}</td>
+          </tr>`).join('');
+
       const logoHtml = school?.logo_url
         ? `<img src="${school.logo_url}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid #1A365D;" />`
         : `<div style="width:80px;height:80px;border-radius:50%;background:#1A365D;color:#FFF;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;text-align:center;line-height:1.2;padding:5px;">EDU<br/>SALONE</div>`;
@@ -275,55 +297,53 @@ export default function FeesScreen() {
               * { margin: 0; padding: 0; box-sizing: border-box; }
               body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #FFF; color: #1A202C; }
               .page { border: 3px solid #1A365D; border-radius: 12px; overflow: hidden; }
-              
-              /* TOP STRIPE */
               .top-stripe { background: #1A365D; height: 8px; }
-              
-              /* HEADER */
               .header { background: linear-gradient(135deg, #1A365D 0%, #2B6CB0 100%); padding: 20px 24px; display: flex; align-items: center; }
               .logo-wrap { width: 80px; height: 80px; flex-shrink: 0; }
               .school-info { flex: 1; padding-left: 16px; }
               .school-name { color: #FFF; font-size: 18px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.2; }
               .receipt-badge { display: inline-block; background: #D69E2E; color: #FFF; font-size: 10px; font-weight: 900; letter-spacing: 2px; padding: 4px 10px; border-radius: 20px; margin-top: 6px; }
-              
-              /* RECEIPT ID BAR */
               .id-bar { background: #EBF8FF; border-top: 1px solid #BEE3F8; border-bottom: 1px solid #BEE3F8; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; }
               .receipt-num { font-size: 15px; font-weight: 900; color: #2B6CB0; letter-spacing: 1px; }
               .receipt-date { font-size: 13px; color: #4A5568; font-weight: bold; }
-              
-              /* BODY */
               .body { padding: 20px 24px; }
-              
-              /* INFO GRID */
-              .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+              .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
               .info-box { background: #F7FAFC; border-radius: 8px; padding: 12px; border-left: 3px solid #2B6CB0; }
               .info-label { font-size: 9px; font-weight: 900; color: #718096; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
               .info-value { font-size: 14px; font-weight: 900; color: #1A365D; }
-              
-              /* AMOUNT BOX */
-              .amount-section { background: linear-gradient(135deg, #F0FFF4, #E6FFFA); border: 2px solid #38A169; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px; }
+              .amount-section { background: linear-gradient(135deg, #F0FFF4, #E6FFFA); border: 2px solid #38A169; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 18px; }
               .amount-label { font-size: 10px; font-weight: 900; color: #276749; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; }
-              .amount-value { font-size: 36px; font-weight: 900; color: #22543D; }
+              .amount-value { font-size: 34px; font-weight: 900; color: #22543D; }
               .method-tag { display: inline-block; background: #C6F6D5; color: #22543D; font-size: 11px; font-weight: 900; padding: 4px 12px; border-radius: 20px; margin-top: 8px; }
-              
-              /* SIGNATURES */
-              .sig-section { display: flex; justify-content: space-between; margin-top: 24px; padding-top: 16px; border-top: 1px dashed #CBD5E0; }
+              /* FEE SUMMARY */
+              .fee-summary { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+              .fee-cell { border-radius: 8px; padding: 12px 8px; text-align: center; border: 1.5px solid; }
+              .fee-cell .fl { font-size: 8.5px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; }
+              .fee-cell .fv { font-size: 14px; font-weight: 900; }
+              .fee-expected { background: #EBF8FF; border-color: #BEE3F8; }
+              .fee-expected .fl, .fee-expected .fv { color: #1A365D; }
+              .fee-paid { background: #F0FFF4; border-color: #9AE6B4; }
+              .fee-paid .fl, .fee-paid .fv { color: #22543D; }
+              .fee-balance { background: #FFF5F5; border-color: #FEB2B2; }
+              /* PAYMENT HISTORY */
+              .hist-title { font-size: 11px; font-weight: 900; color: #1A365D; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 2px solid #E2E8F0; }
+              .hist-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11px; }
+              .hist-table th { background: #1A365D; color: #FFF; padding: 7px 8px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; }
+              .hist-table th:last-child { text-align: right; }
+              .hist-table td { padding: 7px 8px; border-bottom: 1px solid #EDF2F7; }
+              .hist-table tr:nth-child(even) td { background: #F7FAFC; }
+              .sig-section { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 16px; border-top: 1px dashed #CBD5E0; }
               .sig-box { text-align: center; width: 45%; }
               .sig-line { border-top: 1.5px solid #4A5568; margin-bottom: 6px; }
               .sig-label { font-size: 10px; font-weight: bold; color: #718096; text-transform: uppercase; letter-spacing: 0.5px; }
-              
-              /* FOOTER */
               .footer { background: #1A365D; padding: 10px 24px; text-align: center; }
               .footer-text { color: rgba(255,255,255,0.7); font-size: 9px; letter-spacing: 0.5px; }
-              
-              /* WATERMARK */
               .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%) rotate(-30deg); font-size: 60px; color: rgba(26,54,93,0.04); font-weight: 900; z-index: 0; white-space: nowrap; pointer-events: none; }
             </style>
           </head>
           <body>
             <div class="page">
               <div class="top-stripe"></div>
-              
               <div class="header">
                 <div class="logo-wrap">${logoHtml}</div>
                 <div class="school-info">
@@ -331,15 +351,12 @@ export default function FeesScreen() {
                   <div class="receipt-badge">OFFICIAL FEE RECEIPT</div>
                 </div>
               </div>
-              
               <div class="id-bar">
                 <div class="receipt-num">🧾 ${transaction.receipt_number}</div>
                 <div class="receipt-date">📅 ${dateFormatted}</div>
               </div>
-              
               <div class="body">
                 <div class="watermark">PAID</div>
-                
                 <div class="info-grid">
                   <div class="info-box" style="grid-column: span 2;">
                     <div class="info-label">Student Full Name</div>
@@ -354,13 +371,36 @@ export default function FeesScreen() {
                     <div class="info-value">${studentAdm}</div>
                   </div>
                 </div>
-                
+
                 <div class="amount-section">
-                  <div class="amount-label">Amount Paid</div>
+                  <div class="amount-label">Amount Paid (This Receipt)</div>
                   <div class="amount-value">${amountFormatted}</div>
                   <div class="method-tag">💳 ${transaction.payment_method}</div>
                 </div>
-                
+
+                <div class="fee-summary">
+                  <div class="fee-cell fee-expected">
+                    <div class="fl">Expected Fee</div>
+                    <div class="fv">${formatCurrency(expectedFee)}</div>
+                  </div>
+                  <div class="fee-cell fee-paid">
+                    <div class="fl">Total Paid So Far</div>
+                    <div class="fv">${formatCurrency(totalPaid)}</div>
+                  </div>
+                  <div class="fee-cell fee-balance">
+                    <div class="fl" style="color:${balanceColor};">${balanceLabel}</div>
+                    <div class="fv" style="color:${balanceColor};">${balanceShown}</div>
+                  </div>
+                </div>
+
+                <div class="hist-title">Payment History</div>
+                <table class="hist-table">
+                  <thead>
+                    <tr><th>Date</th><th>Receipt</th><th>Method</th><th>Amount</th></tr>
+                  </thead>
+                  <tbody>${historyRows}</tbody>
+                </table>
+
                 <div class="sig-section">
                   <div class="sig-box">
                     <div class="sig-line"></div>
@@ -372,7 +412,6 @@ export default function FeesScreen() {
                   </div>
                 </div>
               </div>
-              
               <div class="footer">
                 <div class="footer-text">This is an official document generated by EduSalone • ${new Date().toLocaleString()} • Do not alter</div>
               </div>
