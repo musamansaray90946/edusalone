@@ -1,16 +1,14 @@
 // ============================================================================
 // EduSalone — Shared Report Card Builder
 // Location in project: src/lib/reportCard.ts
-// Pure TypeScript. No React/React-Native imports. Returns a full HTML document
-// string suitable for Print.printToFileAsync({ html }) and window print.
 // ============================================================================
 
 export interface ClassRecord {
   student_id: string;
   subject: string;
-  term: string;            // contains 'First' | 'Second' | 'Third'
+  term: string;
   academic_year?: string | null;
-  score?: number | null;   // subject term TOTAL out of 100
+  score?: number | null;
   test_1?: number | null;
   test_2?: number | null;
   exam?: number | null;
@@ -27,11 +25,11 @@ export interface BuildReportArgs {
     current_class?: string | null;
   };
   academicYear: string;
-  classRecords: ClassRecord[];   // ALL records for the whole class (any year); filtered inside
-  classSize: number;             // exact enrolled count for the class
+  classRecords: ClassRecord[];
+  classSize: number;
   attendance: { present: number; absent: number; late: number };
-  ev: any;                       // single student_evaluations row (traits/skills/comments) or null
-  verifyBaseUrl?: string;        // e.g. 'https://verify.edusalone.sl/r/' (post-demo verify page)
+  ev: any;
+  verifyBaseUrl?: string;
 }
 
 type TermKey = 'First' | 'Second' | 'Third';
@@ -51,7 +49,6 @@ function n(v: any): number | null {
   return isNaN(x) ? null : x;
 }
 
-// TOT for a record: prefer score; else test_1+test_2+exam if any present.
 function totOf(rec: ClassRecord): number | null {
   const s = n(rec.score);
   if (s !== null) return s;
@@ -60,7 +57,6 @@ function totOf(rec: ClassRecord): number | null {
   return (a || 0) + (b || 0) + (c || 0);
 }
 
-// Competition ranking (1, 2, 2, 4). Higher value = better rank.
 function rankMap(entries: { id: string; val: number }[]): Record<string, number> {
   const sorted = [...entries].sort((x, y) => y.val - x.val);
   const out: Record<string, number> = {};
@@ -84,7 +80,6 @@ function esc(s: any): string {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Unique, stable color per school name. JSS vs SS differ via accent + label + scale.
 function schoolPalette(name: string, isJSS: boolean) {
   let h = 0;
   for (let i = 0; i < (name || '').length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
@@ -106,6 +101,29 @@ function schoolPalette(name: string, isJSS: boolean) {
     levelTag: isJSS ? 'JSS' : 'SS',
     examBoard: isJSS ? 'BECE / WAEC' : 'WASSCE / WAEC',
   };
+}
+
+// Decide the level from the class name. Robust to spacing/case and the old "Form" naming.
+//   SS  = Senior Secondary (A1–F9, WASSCE/WAEC)
+//   JSS = Junior Secondary (1–6, BECE/WAEC)
+// NOTE: To add a PRIMARY level later, return a third value from here and extend
+// schoolPalette(), gradeFor() and the grade-key bar to handle it. The rest of the
+// builder does not need to change.
+function detectIsJSS(cls: string | null | undefined): boolean {
+  const c = (cls || '').toUpperCase().replace(/\s+/g, ' ').trim();
+  // Explicit SENIOR markers → Senior Secondary
+  if (c.includes('SSS') || c.includes('SENIOR')) return false;
+  if (/\bSS\s*\d/.test(c)) return false;            // "SS2", "SS 2"
+  // Explicit JUNIOR markers → Junior Secondary
+  if (c.includes('JSS') || c.includes('JUNIOR')) return true;
+  if (/\bJS\s*\d/.test(c)) return true;             // "JS 1"
+  // Old "Form" system: Forms 1–3 are junior, Forms 4–6 senior
+  const f = c.match(/FORM\s*(\d)/);
+  if (f) return Number(f[1]) <= 3;
+  // Primary-style names (Class/Basic/Primary/etc.) → numeric 1–6 grading for now
+  if (/CLASS|BASIC|PRIMARY|NURSERY|\bKG\b|PREP|GRADE/.test(c)) return true;
+  // Unrecognised → default to Senior (same as the previous behaviour)
+  return false;
 }
 
 function gradeFor(tot: number, isJSS: boolean): [string, string, boolean] {
@@ -136,14 +154,11 @@ function shortHash(s: string): string {
 
 export function buildReportCardHTML(args: BuildReportArgs): string {
   const { school, student, academicYear, attendance, ev } = args;
-  const isJSS = (student.current_class || '').toUpperCase().includes('JSS');
+  const isJSS = detectIsJSS(student.current_class);
   const p = schoolPalette(school.name || 'EduSalone', isJSS);
 
-  // ---- Restrict to the report's academic year (fall back to all if no year stamped) ----
   const yrRecords = args.classRecords.filter(r => !r.academic_year || r.academic_year === academicYear);
 
-  // ---- Build per-student, per-subject, per-term TOT map ----
-  // byStudent[sid][subject][term] = tot
   const byStudent: Record<string, Record<string, Partial<Record<TermKey, number>>>> = {};
   const subjectsSet = new Set<string>();
   for (const r of yrRecords) {
@@ -157,10 +172,7 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
     byStudent[r.student_id][r.subject][tk] = tot;
   }
 
-  // ---- Rank structures ----
-  // subjectTermRank[subject][term][sid]
   const subjectTermRank: Record<string, Partial<Record<TermKey, Record<string, number>>>> = {};
-  // subjectYearRank[subject][sid]
   const subjectYearRank: Record<string, Record<string, number>> = {};
   for (const subj of subjectsSet) {
     subjectTermRank[subj] = {};
@@ -182,7 +194,6 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
     if (yEntries.length) subjectYearRank[subj] = rankMap(yEntries);
   }
 
-  // termRank[term][sid] by sum across subjects that term; yearlyRank[sid] by grand sum
   const termRank: Partial<Record<TermKey, Record<string, number>>> = {};
   for (const tk of TERMS) {
     const entries: { id: string; val: number }[] = [];
@@ -207,8 +218,6 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
   }
   const yearlyRank = rankMap(yearlyEntries);
 
-  // ---- Target student's raw per-subject-per-term marks (for the printed rows) ----
-  // raw[subject][term] = { t1, t2, ex, tot }
   const raw: Record<string, Partial<Record<TermKey, { t1: any; t2: any; ex: any; tot: number }>>> = {};
   for (const r of yrRecords) {
     if (r.student_id !== student.id) continue;
@@ -221,7 +230,6 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
   }
   const targetSubjects = Object.keys(raw).sort();
 
-  // ---- Render subject rows + accumulate column totals ----
   const colSum = {
     First: { t1: 0, t2: 0, ex: 0, tot: 0 },
     Second: { t1: 0, t2: 0, ex: 0, tot: 0 },
@@ -264,7 +272,6 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
     }
   }
 
-  // ---- TOTALS row ----
   const meanOf = (tot: number, cnt: number) => cnt ? (tot / cnt).toFixed(1) : '-';
   const subjCountPerTerm = (tk: TermKey) => targetSubjects.filter(s => raw[s][tk]).length;
   const overallMean = maxObtainable ? (grandTotal / maxObtainable * 100).toFixed(1) : '0';
@@ -279,7 +286,6 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
       <td class="grp tot">${grandTotal || '-'}</td><td class="tot">${overallMean}%</td><td class="pos">${ord(myYearRnk)}</td><td>—</td><td class="rem rp">OVERALL</td>
     </tr>`;
 
-  // ---- Traits / skills ----
   const TRAIT_C: any = { 1: '#cc2200', 2: '#dd6600', 3: '#c79a00', 4: '#3182CE', 5: '#2f855a' };
   const traitRow = (name: string, v: number) => {
     let dots = '';
@@ -292,21 +298,16 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
     return `<div class="prow"><span class="pname">${name}</span><div class="bars">${bars}</div><span class="score">${v > 0 ? v : '—'}</span></div>`;
   };
 
-  // ---- Key bar ----
   const keys = isJSS
     ? [['75–100', 'Grd 1 EXCELLENT', '#1f6f4a'], ['65–74', 'Grd 2 V.GOOD', '#4A5568'], ['45–64', 'Grd 3/4 CREDIT', '#2b6cb0'], ['35–44', 'Grd 5 PASS', '#4299e1'], ['0–34', 'Grd 6 FAIL', '#e53e3e']]
     : [['75–100', 'A1 EXCELLENT', '#1f6f4a'], ['65–74', 'B2/B3 GOOD', '#4A5568'], ['50–64', 'C4–C6 CREDIT', '#2b6cb0'], ['40–49', 'D7/E8 PASS', '#4299e1'], ['0–39', 'F9 FAIL', '#e53e3e']];
   const keyBar = `<div class="keys">${keys.map(k => `<div class="key" style="background:${k[2]}">${k[0]}: ${k[1]}</div>`).join('')}</div>`;
 
-  // ---- Logo / initials ----
   const initials = (school.name || 'ES').split(' ').map(w => w[0]).join('').slice(0, 3).toUpperCase();
   const logoHtml = school.logo_url
     ? `<img src="${school.logo_url}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" alt=""/>`
     : `<span style="font-weight:900;font-size:14px;color:${p.primary};">${initials}</span>`;
 
-  // ---- Verification token (opaque — no PII/bio embedded) + QR ----
-  // The QR carries only a meaningless token. Only the server verify page can map
-  // it back to the real record, so a forged card cannot fake a valid scan.
   const token = (shortHash(`${school.school_code}|${student.admission_number}|${academicYear}|${grandTotal}|${student.id}`)
     + shortHash(`${student.full_name}|${student.id}|${academicYear}|${maxObtainable}`)).toLowerCase();
   const verifyUrl = (args.verifyBaseUrl || 'https://verify.edusalone.sl/r/') + token;
