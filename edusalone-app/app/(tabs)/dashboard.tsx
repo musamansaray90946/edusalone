@@ -118,6 +118,8 @@ export default function PrincipalDashboard() {
   const [isAIOpen, setIsAIOpen] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isGeneratingRoster, setIsGeneratingRoster] = useState(false);
+  const [showRoster, setShowRoster] = useState(false);
+  const [rosterSearch, setRosterSearch] = useState('');
 
   // Top Scholars dropdown toggle
   const [showTopScholars, setShowTopScholars] = useState(false);
@@ -844,39 +846,77 @@ export default function PrincipalDashboard() {
           ))}
         </View>
 
-        {/* ── BIO-ROSTER LEDGER with Delete ── */}
+        {/* ── BIO-ROSTER LEDGER: collapsible + searchable ── */}
         <View style={styles.card}>
-          <View style={styles.rowBetween}>
-            <View>
-              <Text style={styles.cardTitle}>Bio-Roster Ledger</Text>
-              <Text style={{ fontSize: 11, color: '#A0AEC0', marginTop: 2 }}>{roster.length} students enrolled</Text>
-            </View>
-            <TouchableOpacity style={styles.pdfBtn} onPress={generateOfficialLedger} disabled={isGeneratingRoster}>
-              {isGeneratingRoster ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="print" size={16} color="#FFF" />}
-              <Text style={styles.pdfBtnTxt}>PRINT ROSTER</Text>
-            </TouchableOpacity>
-          </View>
-          {roster.map((std) => (
-            <View key={std.id} style={[styles.rosterRow, { flexDirection: 'row', alignItems: 'center' }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rosterName}>{std.users?.full_name || 'PENDING ACCOUNT'}</Text>
-                <Text style={styles.rosterSub}>{std.admission_number} | {std.current_class} | {std.gender}</Text>
-                <Text style={[styles.statusTag, { color: std.users?.is_active ? SUCCESS_GREEN : ACCENT_GOLD }]}>
-                  {std.users?.is_active ? 'CLAIMED ✅' : 'STAGED / WAITING ⏳'}
-                </Text>
+          <TouchableOpacity onPress={() => setShowRoster(!showRoster)} activeOpacity={0.7} style={{ alignItems: 'center' }}>
+            <Text style={[styles.cardTitle, { textAlign: 'center' }]}>Bio-Roster Ledger</Text>
+            <Text style={{ fontSize: 11, color: '#A0AEC0', marginTop: 2 }}>{roster.length} students enrolled · tap to {showRoster ? 'close' : 'open'}</Text>
+            <Ionicons name={showRoster ? 'chevron-up' : 'chevron-down'} size={20} color={PRIMARY_NAVY} style={{ marginTop: 4 }} />
+          </TouchableOpacity>
+
+          {showRoster && (
+            <View style={{ marginTop: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 12, borderWidth: 1.5, borderColor: '#EDF2F7', paddingHorizontal: 12, marginRight: 10 }}>
+                  <Ionicons name="search" size={16} color="#A0AEC0" />
+                  <TextInput
+                    style={{ flex: 1, paddingVertical: 11, paddingHorizontal: 8, fontSize: 14, color: PRIMARY_NAVY }}
+                    placeholder="Search name, admission ID, or class..."
+                    placeholderTextColor="#A0AEC0"
+                    value={rosterSearch}
+                    onChangeText={setRosterSearch}
+                  />
+                  {rosterSearch.length > 0 && (
+                    <TouchableOpacity onPress={() => setRosterSearch('')}>
+                      <Ionicons name="close-circle" size={18} color="#A0AEC0" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <TouchableOpacity style={styles.pdfBtn} onPress={generateOfficialLedger} disabled={isGeneratingRoster}>
+                  {isGeneratingRoster ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="print" size={16} color="#FFF" />}
+                  <Text style={styles.pdfBtnTxt}>PRINT</Text>
+                </TouchableOpacity>
               </View>
-              {/* DELETE BUTTON */}
-              <TouchableOpacity
-                onPress={() => deleteStudent(std.id, std.users?.full_name || std.admission_number, std.user_id)}
-                disabled={deletingStudentId === std.id}
-                style={{ backgroundColor: '#FEE2E2', borderRadius: 10, padding: 10, marginLeft: 10, alignItems: 'center', justifyContent: 'center' }}>
-                {deletingStudentId === std.id
-                  ? <ActivityIndicator size="small" color={DANGER_RED} />
-                  : <Ionicons name="trash-outline" size={18} color={DANGER_RED} />}
-              </TouchableOpacity>
+
+              {(() => {
+                const q = rosterSearch.trim().toLowerCase();
+                const filtered = q
+                  ? roster.filter((s: any) =>
+                      (s.users?.full_name || '').toLowerCase().includes(q) ||
+                      (s.admission_number || '').toLowerCase().includes(q) ||
+                      (s.current_class || '').toLowerCase().includes(q))
+                  : roster;
+                if (roster.length === 0) return <Text style={styles.emptyTxt}>No students enrolled yet.</Text>;
+                if (filtered.length === 0) return <Text style={styles.emptyTxt}>No match for "{rosterSearch}".</Text>;
+                return (
+                  <View>
+                    <Text style={{ fontSize: 10, color: '#A0AEC0', fontWeight: '900', marginBottom: 8 }}>SHOWING {filtered.length} OF {roster.length}</Text>
+                    <ScrollView style={{ maxHeight: 360 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                      {filtered.map((std: any) => (
+                        <View key={std.id} style={[styles.rosterRow, { flexDirection: 'row', alignItems: 'center' }]}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.rosterName}>{std.users?.full_name || 'PENDING ACCOUNT'}</Text>
+                            <Text style={styles.rosterSub}>{std.admission_number} | {std.current_class} | {std.gender}</Text>
+                            <Text style={[styles.statusTag, { color: std.users?.is_active ? SUCCESS_GREEN : ACCENT_GOLD }]}>
+                              {std.users?.is_active ? 'CLAIMED ✅' : 'STAGED / WAITING ⏳'}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => deleteStudent(std.id, std.users?.full_name || std.admission_number, std.user_id)}
+                            disabled={deletingStudentId === std.id}
+                            style={{ backgroundColor: '#FEE2E2', borderRadius: 10, padding: 10, marginLeft: 10, alignItems: 'center', justifyContent: 'center' }}>
+                            {deletingStudentId === std.id
+                              ? <ActivityIndicator size="small" color={DANGER_RED} />
+                              : <Ionicons name="trash-outline" size={18} color={DANGER_RED} />}
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                );
+              })()}
             </View>
-          ))}
-          {roster.length === 0 && <Text style={styles.emptyTxt}>No students enrolled yet.</Text>}
+          )}
         </View>
 
       </ScrollView>
