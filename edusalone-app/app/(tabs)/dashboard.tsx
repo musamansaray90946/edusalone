@@ -126,6 +126,10 @@ export default function PrincipalDashboard() {
   const [deletingStudentId, setDeletingStudentId] = useState<string | null>(null);
   const [runningAlerts, setRunningAlerts] = useState(false);
 
+  // Teacher role assignment state
+  const [staff, setStaff] = useState<any[]>([]);
+  const [assigningId, setAssigningId] = useState<string | null>(null);
+
   const [studentForm, setStudentForm] = useState({ 
     fullName: '', admissionId: '', assignedClass: '', gender: 'Male', birthDate: '' 
   });
@@ -159,9 +163,16 @@ export default function PrincipalDashboard() {
 
       const { data: rosterData } = await supabase
         .from('students')
-        .select('*, users(full_name, phone, is_active)')
+        .select('*, users!user_id(full_name, phone, is_active)')
         .eq('school_id', profileData.school_id)
         .order('created_at', { ascending: false });
+
+      const { data: staffData } = await supabase
+        .from('users')
+        .select('id, full_name, email, role, teacher_type, assigned_class')
+        .eq('school_id', profileData.school_id)
+        .eq('role', 'Teacher')
+        .order('full_name', { ascending: true });
 
       const { data: leaderboardData } = await supabase
         .from('students')
@@ -183,6 +194,7 @@ export default function PrincipalDashboard() {
       const totalRevenue = revenueData?.reduce((s, c) => s + (Number(c.amount_paid_sll) || 0), 0) || 0;
 
       setRoster(rosterData || []);
+      setStaff(staffData || []);
       setTopScholars(leaderboardData || []);
       setUnreadCount(msgCount || 0);
       setMetrics({ students: sCount || 0, staff: tCount || 0, revenue: totalRevenue });
@@ -376,6 +388,23 @@ export default function PrincipalDashboard() {
     );
   }
 
+  async function assignTeacherRole(teacherId: string, type: 'class' | 'subject', className: string | null) {
+    setAssigningId(teacherId);
+    try {
+      const update = type === 'class'
+        ? { teacher_type: 'class', assigned_class: className }
+        : { teacher_type: 'subject', assigned_class: null };
+      const { error } = await supabase.from('users').update(update).eq('id', teacherId);
+      if (error) throw error;
+      setStaff(prev => prev.map(t => t.id === teacherId ? { ...t, ...update } : t));
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      const m = e.message || 'Could not update role.';
+      if (Platform.OS === 'web') window.alert('Error: ' + m); else Alert.alert('Error', m);
+    }
+    setAssigningId(null);
+  }
+
   async function handleAuthorizeAccess() {
     if (!studentForm.fullName || !studentForm.admissionId) {
       Alert.alert('Incomplete Entry', 'Full name and Admission ID are required.');
@@ -557,6 +586,9 @@ export default function PrincipalDashboard() {
 
   // Count pending grades for badge
   const pendingCount = pendingReports.filter((r: any) => r.status === 'pending_review').length;
+
+  // Distinct class names (from enrolled students) — used to assign Form Teachers
+  const classList = [...new Set(roster.map((s: any) => s.current_class).filter(Boolean))].sort();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -755,6 +787,61 @@ export default function PrincipalDashboard() {
           <TouchableOpacity style={[styles.mainBtn, { backgroundColor: SUCCESS_GREEN }]} onPress={handleAuthorizeAccess} disabled={isProvisioning}>
             {isProvisioning ? <ActivityIndicator color="#FFF" /> : <Text style={styles.btnTxt}>Authorize Handover</Text>}
           </TouchableOpacity>
+        </View>
+
+        {/* ── ASSIGN TEACHER ROLES ── */}
+        <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <View style={{ flex: 1, paddingRight: 10 }}>
+              <Text style={styles.cardTitle}>Assign Teacher Roles</Text>
+              <Text style={{ fontSize: 11, color: '#A0AEC0', marginTop: 2 }}>Form Teachers verify & approve grades. Subject Teachers only submit.</Text>
+            </View>
+            <Ionicons name="people" size={20} color={PRIMARY_NAVY} />
+          </View>
+
+          {staff.length === 0 ? (
+            <Text style={styles.emptyTxt}>No teachers registered yet.</Text>
+          ) : staff.map((t) => (
+            <View key={t.id} style={{ paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '800', color: PRIMARY_NAVY }}>{t.full_name || 'Unnamed Teacher'}</Text>
+                  <Text style={{ fontSize: 11, color: '#A0AEC0', marginTop: 2 }}>
+                    {t.teacher_type === 'class'
+                      ? `🟢 Form Teacher · ${t.assigned_class || '—'}`
+                      : t.teacher_type === 'subject'
+                        ? '🔵 Subject Teacher'
+                        : '⚪ Not assigned yet'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => assignTeacherRole(t.id, 'subject', null)}
+                  disabled={assigningId === t.id}
+                  style={{ backgroundColor: t.teacher_type === 'subject' ? '#BEE3F8' : '#EDF2F7', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '900', color: SECONDARY_BLUE }}>Subject Teacher</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={{ fontSize: 10, color: '#718096', fontWeight: 'bold', marginTop: 10, marginBottom: 6 }}>OR SET AS FORM TEACHER FOR CLASS:</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                {classList.length === 0 ? (
+                  <Text style={{ fontSize: 11, color: '#CBD5E0', fontStyle: 'italic' }}>No classes yet — enroll students first.</Text>
+                ) : classList.map((cls: any) => {
+                  const active = t.teacher_type === 'class' && t.assigned_class === cls;
+                  return (
+                    <TouchableOpacity
+                      key={cls}
+                      onPress={() => assignTeacherRole(t.id, 'class', cls)}
+                      disabled={assigningId === t.id}
+                      style={{ backgroundColor: active ? SUCCESS_GREEN : '#F0FFF4', borderWidth: 1, borderColor: active ? SUCCESS_GREEN : '#C6F6D5', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, marginRight: 6, marginBottom: 6 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '900', color: active ? '#FFF' : '#276749' }}>{cls}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {assigningId === t.id && <ActivityIndicator size="small" color={PRIMARY_NAVY} style={{ marginTop: 8 }} />}
+            </View>
+          ))}
         </View>
 
         {/* ── BIO-ROSTER LEDGER with Delete ── */}
