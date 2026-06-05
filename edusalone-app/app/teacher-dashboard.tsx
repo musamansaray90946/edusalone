@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AskAI from '../components/AskAI';
+import { registerForPush } from '../src/lib/registerPush';
 import { supabase } from '../src/lib/supabase';
 
 // ─────────────────────────────────────────────
@@ -555,6 +556,8 @@ export default function TeacherDashboard() {
     const { data: profileData } = await supabase.from('users').select('*, schools(name, logo_url)').eq('email', user.email).single();
     if (profileData) {
       setProfile(profileData);
+      // 🔔 Register THIS teacher's device for push notifications
+      registerForPush(profileData.id).catch(() => {});
       setBioData({ prefix: profileData.prefix || '', phone: profileData.phone || '', address: profileData.address || '', dob: profileData.dob || '', pob: profileData.pob || '', qualifications: profileData.qualifications || '' });
       setImpactScore(Math.floor(Math.random() * 500) + 100);
     }
