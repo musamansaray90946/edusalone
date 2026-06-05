@@ -22,6 +22,7 @@ import {
   View
 } from 'react-native';
 import AskAI from '../components/AskAI';
+import { registerForPush } from '../src/lib/registerPush';
 import { buildReportCardHTML } from '../src/lib/reportCard';
 import { supabase } from '../src/lib/supabase';
 import ChatTab from './(tabs)/chat';
@@ -608,6 +609,8 @@ useEffect(() => {
       
       if (profileData) {
         setProfile(profileData);
+        // 🔔 Register THIS user's device for push notifications (students & parents)
+        registerForPush(profileData.id).catch(() => {});
         let query = supabase.from('students').select('*, schools(*)');
         if (profileData.role === 'Student') { query = query.eq('user_id', profileData.id); } 
         else if (profileData.role === 'Parent') { query = query.eq('parent_user_id', profileData.id); }
