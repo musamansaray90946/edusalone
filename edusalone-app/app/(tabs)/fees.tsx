@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../../src/lib/supabase'; // Make sure path matches your project!
 
 export default function FeesScreen() {
@@ -25,6 +25,17 @@ export default function FeesScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
 
+  // Documents
+  const [profile, setProfile] = useState<any>(null);
+  const [bursarInbox, setBursarInbox] = useState<any[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [bDocTitle, setBDocTitle] = useState('');
+  const [bDocNote, setBDocNote] = useState('');
+  const [bDocAudience, setBDocAudience] = useState('office');
+  const [sendingBDoc, setSendingBDoc] = useState(false);
+  const [bMySent, setBMySent] = useState<any[]>([]);
+  const [showBSent, setShowBSent] = useState(false);
+
   const paymentOptions = ['Cash', 'Orange Money', 'Afrimoney', 'Bank Transfer'];
 
   useEffect(() => { loadInitialData(); },[]);
@@ -39,13 +50,16 @@ export default function FeesScreen() {
     } 
   }, [school]);
 
+  useEffect(() => { if (school && profile) loadBursarDocs(); }, [school, profile]);
+
   async function loadInitialData() {
     setFetching(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: profile } = await supabase.from('users').select('school_id').eq('email', user.email).single();
+      const { data: profile } = await supabase.from('users').select('*').eq('email', user.email).single();
       if (profile && profile.school_id) {
+        setProfile(profile);
         const { data: schoolData } = await supabase.from('schools').select('*').eq('id', profile.school_id).single();
         if (schoolData) setSchool(schoolData);
       }
@@ -82,6 +96,75 @@ export default function FeesScreen() {
       .order('created_at', { ascending: false })
       .limit(5); // Keep it clean by only showing the 5 most recent notices
     if (data) setNews(data);
+  }
+
+  function openDoc(url: string) {
+    if (!url) return;
+    if (Platform.OS === 'web') window.open(url, '_blank'); else Linking.openURL(url);
+  }
+
+  function docAudLabel(a: string) {
+    return ({ office: 'the Office', parents: 'Parents', teachers: 'Teachers', staff: 'All Staff', all: 'Everyone', bursar: 'the Bursar', students: 'Students', secretary: 'the Secretary' } as any)[a] || a;
+  }
+
+  async function loadBursarDocs() {
+    if (!school) return;
+    setLoadingDocs(true);
+    const { data } = await supabase.from('school_documents')
+      .select('*').eq('school_id', school.id)
+      .in('audience', ['all', 'staff', 'bursar'])
+      .order('created_at', { ascending: false }).limit(40);
+    setBursarInbox(data || []);
+    if (profile?.id) {
+      const { data: mine } = await supabase.from('school_documents')
+        .select('*').eq('school_id', school.id).eq('sender_id', profile.id)
+        .order('created_at', { ascending: false }).limit(30);
+      setBMySent(mine || []);
+    }
+    setLoadingDocs(false);
+  }
+
+  async function sendBursarDoc() {
+    const title = bDocTitle.trim();
+    if (!title) { Alert.alert('Missing title', 'Add a document title first.'); return; }
+    if (Platform.OS !== 'web') { Alert.alert('Use the web portal', 'Sending documents is available on the web app for now.'); return; }
+    const aud = bDocAudience;
+    const note = bDocNote.trim();
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,image/*';
+    input.onchange = async () => {
+      const file: any = input.files && input.files[0];
+      if (!file) return;
+      setSendingBDoc(true);
+      try {
+        const safeName = String(file.name).replace(/[^\w.\-]/g, '_');
+        const path = `${school.id}/documents/${Date.now()}_${safeName}`;
+        const { error: upErr } = await supabase.storage.from('school-materials').upload(path, file, { contentType: file.type || undefined, upsert: false });
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage.from('school-materials').getPublicUrl(path);
+        const ext = (String(file.name).split('.').pop() || '').toLowerCase();
+        const ftype = ext === 'pdf' ? 'pdf' : ['doc', 'docx'].includes(ext) ? 'doc' : ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic'].includes(ext) ? 'image' : 'other';
+        const { error: insErr } = await supabase.from('school_documents').insert({
+          school_id: school.id, sender_id: profile?.id,
+          sender_name: profile?.full_name || 'Bursar Office', sender_role: profile?.role || 'Bursar',
+          title, note: note || null, file_url: pub.publicUrl, file_name: file.name, file_type: ftype,
+          audience: aud, target_class: null,
+        });
+        if (insErr) throw insErr;
+        window.alert(`✅ Sent\n"${title}" delivered to ${docAudLabel(aud)}.`);
+        setBDocTitle(''); setBDocNote('');
+        loadBursarDocs();
+      } catch (e: any) { window.alert('Upload failed: ' + (e?.message || e)); }
+      setSendingBDoc(false);
+    };
+    input.click();
+  }
+
+  async function deleteBursarDoc(id: string) {
+    const go = async () => { await supabase.from('school_documents').delete().eq('id', id); setBMySent(prev => prev.filter((d: any) => d.id !== id)); setBursarInbox(prev => prev.filter((d: any) => d.id !== id)); };
+    if (Platform.OS === 'web') { if (window.confirm('Delete this document?')) go(); return; }
+    Alert.alert('Delete document?', 'This removes it permanently.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: go }]);
   }
 
   async function deleteTransaction(transactionId: string) {
@@ -472,6 +555,75 @@ async function generateReceiptPDF(transaction: any) {
           ) : (
             <Text style={styles.emptyText}>No official notices broadcasted yet.</Text>
           )}
+        </View>
+
+        {/* ── DOCUMENTS HUB ── */}
+        <View style={styles.card}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+            <Ionicons name="document-attach" size={20} color="#3B82F6" />
+            <Text style={[styles.sectionTitle, { marginBottom: 0, marginLeft: 8 }]}>Documents</Text>
+            <TouchableOpacity onPress={loadBursarDocs} style={{ marginLeft: 'auto' }}>
+              <Ionicons name="refresh" size={18} color="#94A3B8" />
+            </TouchableOpacity>
+          </View>
+
+          <TextInput style={styles.input} placeholder="Document title (e.g. Fee Defaulters List)" placeholderTextColor="#64748B" value={bDocTitle} onChangeText={setBDocTitle} />
+          <TextInput style={[styles.input, { height: 64, textAlignVertical: 'top' }]} placeholder="Short note (optional)" placeholderTextColor="#64748B" multiline value={bDocNote} onChangeText={setBDocNote} />
+          <Text style={{ color: '#64748B', fontSize: 10, fontWeight: '900', marginBottom: 8 }}>SEND TO</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+            {[{ key: 'office', label: 'Office' }, { key: 'parents', label: 'Parents' }, { key: 'teachers', label: 'Teachers' }, { key: 'all', label: 'Everyone' }].map((opt) => {
+              const active = bDocAudience === opt.key;
+              return (
+                <TouchableOpacity key={opt.key} onPress={() => setBDocAudience(opt.key)} style={{ backgroundColor: active ? '#3B82F6' : '#0F172A', borderWidth: 1, borderColor: active ? '#3B82F6' : '#334155', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 7 }}>
+                  <Text style={{ color: active ? '#FFF' : '#94A3B8', fontWeight: '900', fontSize: 12 }}>{opt.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <TouchableOpacity style={[styles.primaryButton, { backgroundColor: sendingBDoc ? '#475569' : '#3B82F6' }]} onPress={sendBursarDoc} disabled={sendingBDoc}>
+            {sendingBDoc ? <ActivityIndicator color="#FFF" /> : <Text style={styles.primaryButtonText}>📎 Choose File & Send</Text>}
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => setShowBSent(!showBSent)} style={{ alignItems: 'center', paddingTop: 12 }}>
+            <Text style={{ color: '#3B82F6', fontWeight: '900', fontSize: 12 }}>{showBSent ? '▲ Hide my sent documents' : `▼ My sent documents (${bMySent.length})`}</Text>
+          </TouchableOpacity>
+          {showBSent && (
+            <View style={{ marginTop: 8 }}>
+              {bMySent.length === 0 ? <Text style={styles.emptyText}>You haven't sent any documents.</Text> :
+                bMySent.map((d: any) => (
+                  <View key={d.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#0F172A' }}>
+                    <Ionicons name={d.file_type === 'image' ? 'image' : d.file_type === 'pdf' ? 'document-text' : 'document'} size={18} color="#3B82F6" style={{ marginRight: 8 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: '#FFF', fontWeight: '900', fontSize: 12 }} numberOfLines={1}>{d.title}</Text>
+                      <Text style={{ color: '#64748B', fontSize: 10, marginTop: 1 }}>To {docAudLabel(d.audience)}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => openDoc(d.file_url)} style={{ padding: 6 }}><Ionicons name="open-outline" size={15} color="#3B82F6" /></TouchableOpacity>
+                    <TouchableOpacity onPress={() => deleteBursarDoc(d.id)} style={{ padding: 6, marginLeft: 4 }}><Ionicons name="trash-outline" size={15} color="#E53E3E" /></TouchableOpacity>
+                  </View>
+                ))}
+            </View>
+          )}
+
+          <View style={{ height: 1, backgroundColor: '#334155', marginVertical: 14 }} />
+          <Text style={{ color: '#94A3B8', fontSize: 11, fontWeight: '900', marginBottom: 8 }}>📥 RECEIVED</Text>
+          {loadingDocs ? <ActivityIndicator color="#3B82F6" /> :
+            bursarInbox.length === 0 ? <Text style={styles.emptyText}>No documents received yet.</Text> :
+            bursarInbox.map((d: any) => (
+              <View key={d.id} style={{ backgroundColor: '#0F172A', borderRadius: 10, padding: 12, marginBottom: 10, borderLeftWidth: 3, borderLeftColor: '#3B82F6' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name={d.file_type === 'image' ? 'image' : d.file_type === 'pdf' ? 'document-text' : 'document'} size={20} color="#3B82F6" style={{ marginRight: 10 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#FFF', fontWeight: '900', fontSize: 13 }} numberOfLines={1}>{d.title}</Text>
+                    <Text style={{ color: '#64748B', fontSize: 10, marginTop: 2 }}>{d.sender_name || 'Office'}{d.sender_role ? ` (${d.sender_role})` : ''} · {new Date(d.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</Text>
+                  </View>
+                </View>
+                {d.note ? <Text style={{ color: '#94A3B8', fontSize: 12, marginTop: 6 }}>{d.note}</Text> : null}
+                <TouchableOpacity onPress={() => openDoc(d.file_url)} style={{ backgroundColor: '#3B82F6', borderRadius: 8, padding: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 10 }}>
+                  <Ionicons name="download-outline" size={15} color="#FFF" style={{ marginRight: 6 }} />
+                  <Text style={{ color: '#FFF', fontWeight: '900', fontSize: 12 }}>Open / Download</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
         </View>
 
         {/* LEDGER FILTERS */}

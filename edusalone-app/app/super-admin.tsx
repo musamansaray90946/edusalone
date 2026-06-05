@@ -20,6 +20,10 @@ export default function SuperAdminScreen() {
   const [trialEndInput, setTrialEndInput] = useState('');
   const [showSchoolModal, setShowSchoolModal] = useState(false);
   const [selectedSchool, setSelectedSchool] = useState<any>(null);
+  const [mottoInput, setMottoInput] = useState('');
+  const [addressInput, setAddressInput] = useState('');
+  const [phoneInput, setPhoneInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
 
   useEffect(() => { loadSchools(); },[]);
 
@@ -95,8 +99,18 @@ export default function SuperAdminScreen() {
     const prefix = newSchoolName.substring(0, 3).toUpperCase().replace(/[^A-Z]/g, 'S');
     const code = `${prefix}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    // 🛡️ FIX: We use 'status' and 'school_code' to perfectly match your database!
-    const { error } = await supabase.from('schools').insert([{ name: newSchoolName.trim(), status: 'Active', school_code: code }]);
+    // Start every new school on a 30-day trial (stage 1). CEO can adjust per school in ⚙.
+    const trialStart = new Date();
+    const trialEnd = new Date();
+    trialEnd.setDate(trialEnd.getDate() + 30);
+    const { error } = await supabase.from('schools').insert([{
+      name: newSchoolName.trim(),
+      status: 'Active',
+      school_code: code,
+      subscription_status: 'trial',
+      trial_start_date: trialStart.toISOString(),
+      trial_end_date: trialEnd.toISOString(),
+    }]);
 
     if (error) { Alert.alert('Database Error', error.message); } 
     else { 
@@ -126,9 +140,24 @@ export default function SuperAdminScreen() {
       else {
         if(Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('Success', `Logo updated for ${schoolName}!`);
+        setSchools(prev => prev.map(s => s.id === schoolId ? { ...s, logo_url: base64Img } : s));
+        setSelectedSchool((prev: any) => (prev && prev.id === schoolId ? { ...prev, logo_url: base64Img } : prev));
         loadSchools(); 
       }
     }
+  }
+
+  async function removeSchoolLogo(schoolId: string, schoolName: string) {
+    const go = async () => {
+      setProcessingId(schoolId);
+      const { error } = await supabase.from('schools').update({ logo_url: null }).eq('id', schoolId);
+      setProcessingId(null);
+      if (error) { Alert.alert('Failed', error.message); return; }
+      setSchools(prev => prev.map(s => s.id === schoolId ? { ...s, logo_url: null } : s));
+      setSelectedSchool((prev: any) => (prev && prev.id === schoolId ? { ...prev, logo_url: null } : prev));
+    };
+    if (Platform.OS === 'web') { if (window.confirm(`Remove the logo for ${schoolName}?`)) go(); return; }
+    Alert.alert('Remove Logo?', `Delete the logo for ${schoolName}?`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: go }]);
   }
 
   function confirmToggleStatus(id: string, name: string, currentStatus: string) {
@@ -181,11 +210,16 @@ export default function SuperAdminScreen() {
     return isNaN(d.getTime()) ? null : d;
   }
 
-  async function updateSchoolSubscription() {
+async function updateSchoolSubscription() {
     if (!selectedSchool) return;
     setProcessingId(selectedSchool.id);
     try {
-      const updates: any = {};
+      const updates: any = {
+        motto: mottoInput.trim() || null,
+        address: addressInput.trim() || null,
+        phone: phoneInput.trim() || null,
+        email: emailInput.trim() || null,
+      };
 
       // Parse payment due date
       if (paymentDueInput && paymentDueInput.length >= 8) {
@@ -249,9 +283,19 @@ export default function SuperAdminScreen() {
       {/* SCHOOL MANAGEMENT MODAL */}
       {showSchoolModal && selectedSchool && (
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 999, justifyContent: 'center', padding: 20 }}>
-          <View style={{ backgroundColor: '#FFF', borderRadius: 20, padding: 24 }}>
-            <Text style={{ fontSize: 18, fontWeight: '900', color: '#1A365D', marginBottom: 5 }}>{selectedSchool.name}</Text>
-            <Text style={{ fontSize: 12, color: '#718096', marginBottom: 20 }}>Subscription Management</Text>
+          <View style={{ backgroundColor: '#FFF', borderRadius: 20, maxHeight: '88%', overflow: 'hidden' }}>
+            {/* Fixed header with close (X) */}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#EDF2F7' }}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text style={{ fontSize: 18, fontWeight: '900', color: '#1A365D' }}>{selectedSchool.name}</Text>
+                <Text style={{ fontSize: 12, color: '#718096', marginTop: 3 }}>School Settings & Subscription</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowSchoolModal(false)} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: '#EDF2F7', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="close" size={20} color="#4A5568" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ flexShrink: 1, paddingHorizontal: 24 }} contentContainerStyle={{ paddingTop: 18, paddingBottom: 18 }} showsVerticalScrollIndicator={true}>
 
             {/* TRIAL START DATE */}
             <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#718096', marginBottom: 6, textTransform: 'uppercase' as any }}>Trial Start Date (DD/MM/YYYY)</Text>
@@ -365,7 +409,39 @@ export default function SuperAdminScreen() {
               </View>
             </View>
 
-            <View style={{ flexDirection: 'row' }}>
+            {/* ── SCHOOL LOGO ── */}
+            <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#718096', marginBottom: 6, marginTop: 4, textTransform: 'uppercase' as any }}>School Logo</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 18 }}>
+              <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: '#EDF2F7', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#E2E8F0', overflow: 'hidden', marginRight: 12 }}>
+                {selectedSchool.logo_url ? <Image source={{ uri: selectedSchool.logo_url }} style={{ width: '100%', height: '100%' }} /> : <Ionicons name="image-outline" size={26} color="#A0AEC0" />}
+              </View>
+              <TouchableOpacity onPress={() => uploadSchoolLogo(selectedSchool.id, selectedSchool.name)} style={{ flex: 1, backgroundColor: '#EBF8FF', borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginRight: 8 }}>
+                <Text style={{ color: '#2B6CB0', fontWeight: '900', fontSize: 12 }}>{selectedSchool.logo_url ? 'Change Logo' : 'Upload Logo'}</Text>
+              </TouchableOpacity>
+              {selectedSchool.logo_url ? (
+                <TouchableOpacity onPress={() => removeSchoolLogo(selectedSchool.id, selectedSchool.name)} style={{ backgroundColor: '#FED7D7', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 14, alignItems: 'center' }}>
+                  <Text style={{ color: '#822727', fontWeight: '900', fontSize: 12 }}>Remove</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {/* ── LETTERHEAD DETAILS ── */}
+            <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#718096', marginBottom: 6, textTransform: 'uppercase' as any }}>School Motto / Slogan</Text>
+            <TextInput style={[styles.input, { marginBottom: 16 }]} value={mottoInput} onChangeText={setMottoInput} placeholder="e.g. Knowledge is Light" placeholderTextColor="#A0AEC0" />
+
+            <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#718096', marginBottom: 6, textTransform: 'uppercase' as any }}>Address</Text>
+            <TextInput style={[styles.input, { marginBottom: 16 }]} value={addressInput} onChangeText={setAddressInput} placeholder="e.g. 12 Circular Road, Freetown" placeholderTextColor="#A0AEC0" />
+
+            <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#718096', marginBottom: 6, textTransform: 'uppercase' as any }}>Phone</Text>
+            <TextInput style={[styles.input, { marginBottom: 16 }]} value={phoneInput} onChangeText={setPhoneInput} placeholder="e.g. +232 76 123456" placeholderTextColor="#A0AEC0" keyboardType="phone-pad" />
+
+            <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#718096', marginBottom: 6, textTransform: 'uppercase' as any }}>Email</Text>
+            <TextInput style={[styles.input, { marginBottom: 16 }]} value={emailInput} onChangeText={setEmailInput} placeholder="e.g. info@school.edu.sl" placeholderTextColor="#A0AEC0" keyboardType="email-address" autoCapitalize="none" />
+
+            </ScrollView>
+
+            {/* Fixed footer */}
+            <View style={{ flexDirection: 'row', padding: 20, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#EDF2F7' }}>
               <TouchableOpacity style={{ flex: 1, backgroundColor: '#EDF2F7', borderRadius: 12, padding: 14, alignItems: 'center', marginRight: 10 }} onPress={() => setShowSchoolModal(false)}>
                 <Text style={{ fontWeight: 'bold', color: '#4A5568' }}>Cancel</Text>
               </TouchableOpacity>
@@ -403,6 +479,7 @@ export default function SuperAdminScreen() {
 
             return (
               <View key={school.id} style={styles.schoolRow}>
+                <View style={styles.schoolTopRow}>
                 <TouchableOpacity onPress={() => uploadSchoolLogo(school.id, school.name)} style={styles.logoContainer}>
                   {school.logo_url ? <Image source={{ uri: school.logo_url }} style={styles.logoImg} /> : <Ionicons name="image-outline" size={24} color="#A0AEC0" />}
                   <View style={styles.editIconBadge}><Ionicons name="pencil" size={10} color="#FFF" /></View>
@@ -426,6 +503,7 @@ export default function SuperAdminScreen() {
                       Payment due: {new Date(school.payment_due_date).toLocaleDateString()}
                     </Text>
                   )}
+                </View>
                 </View>
                 
                 <View style={styles.actionsContainer}>
@@ -462,6 +540,11 @@ export default function SuperAdminScreen() {
                     } else {
                       setTrialEndInput('');
                     }
+                    // Pre-fill letterhead details from DB
+                    setMottoInput(school.motto || '');
+                    setAddressInput(school.address || '');
+                    setPhoneInput(school.phone || '');
+                    setEmailInput(school.email || '');
                   }} style={[styles.deleteBtn, { backgroundColor: '#EBF8FF', marginRight: 6 }]}>
                     <Ionicons name="settings-outline" size={18} color="#2B6CB0" />
                   </TouchableOpacity>
@@ -494,13 +577,14 @@ const styles = StyleSheet.create({
   button: { backgroundColor: '#38A169', padding: 16, borderRadius: 10, alignItems: 'center', shadowColor: '#38A169', shadowOpacity: 0.3, shadowRadius: 4, elevation: 2 },
   buttonText: { color: '#FFF', fontWeight: '900', fontSize: 15 },
   listTitle: { fontSize: 18, fontWeight: '900', color: '#4A5568', marginBottom: 15 },
-  schoolRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFF', padding: 15, borderRadius: 12, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.03, elevation: 1 },
+  schoolRow: { flexDirection: 'column', backgroundColor: '#FFF', padding: 15, borderRadius: 12, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.03, elevation: 1 },
+  schoolTopRow: { flexDirection: 'row', alignItems: 'center' },
   logoContainer: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#EDF2F7', alignItems: 'center', justifyContent: 'center', marginRight: 15, borderWidth: 1, borderColor: '#E2E8F0' },
   logoImg: { width: '100%', height: '100%', borderRadius: 25 },
   editIconBadge: { position: 'absolute', bottom: -2, right: -2, backgroundColor: '#3182CE', borderRadius: 10, padding: 4, borderWidth: 1, borderColor: '#FFF' },
   schoolName: { fontSize: 15, fontWeight: '900', color: '#1A365D' },
   schoolCode: { fontSize: 13, color: '#E53E3E', fontWeight: 'bold', marginTop: 4 },
-  actionsContainer: { flexDirection: 'row', alignItems: 'center' },
+  actionsContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 12 },
   statusBadge: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, minWidth: 80, alignItems: 'center', justifyContent: 'center' },
   deleteBtn: { padding: 8, backgroundColor: '#FFF5F5', borderRadius: 8 }
 });

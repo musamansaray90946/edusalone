@@ -15,7 +15,7 @@ export interface ClassRecord {
 }
 
 export interface BuildReportArgs {
-  school: { name?: string | null; logo_url?: string | null; school_code?: string | null };
+  school: { name?: string | null; logo_url?: string | null; school_code?: string | null; motto?: string | null; address?: string | null; phone?: string | null; email?: string | null };
   student: {
     id: string;
     full_name?: string | null;
@@ -401,8 +401,8 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
           <div class="logo">${logoHtml}</div>
           <div class="hdr-mid">
             <h1>${esc(school.name || 'School Name')}</h1>
-            <div class="sub">Sierra Leone's Premier Institution</div>
-            <div class="motto">Knowledge, Courage &amp; Excellence</div>
+            <div class="sub">${esc([school.address, school.phone, school.email].filter(Boolean).join('  •  ')) || "Sierra Leone's Premier Institution"}</div>
+            <div class="motto">${esc(school.motto || 'Knowledge, Courage & Excellence')}</div>
           </div>
           <div class="logo">${logoHtml}</div>
         </div>

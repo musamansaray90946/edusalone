@@ -32,11 +32,13 @@ const PLATFORM_ROLES = [
     icon: 'ribbon',
     color: '#DD6B20',
     bgColor: '#FEEBC8',
-    description: 'Command center for the entire school. Authorize student accounts (Stage 2), review & approve teacher grade submissions, dispatch global notices, manage staff roster, view live revenue metrics, and authorize report card printing.',
+    description: 'Command center for the entire school. Navigate via the ☰ sidebar (Overview · Comms & Docs · People). Authorize student accounts (Stage 2), review & approve teacher grade submissions, dispatch global notices, send official documents to staff/parents/students, manage staff roster, view live revenue metrics, and authorize report card printing.',
     steps: [
+      'Tap the ☰ menu (top-right) to switch between Overview, Comms & Docs, and People',
       'Use the 6-digit school code to onboard teachers, bursars and parents',
       'Open Grade Review Center to approve/return teacher grade submissions',
       'Use Global Broadcaster for school-wide notices & fee alerts',
+      'In Comms & Docs, use Send Document to share PDFs/Word/images with staff or parents; received files appear in the Office Inbox',
       'Print official Bio-Roster Ledger with school logo',
       'View Top Scholars leaderboard (XP from trivia games)',
     ],
@@ -47,13 +49,15 @@ const PLATFORM_ROLES = [
     icon: 'school',
     color: '#3182CE',
     bgColor: '#EBF8FF',
-    description: 'Enter and submit grades, take attendance, record evaluations, upload lesson materials (PDF/Word/Image), build class timetables, and communicate with students via EduChat.',
+    description: 'Enter and submit grades, take attendance, record evaluations, upload lesson materials (PDF/Word/Image), post and mark assignments, send & receive office documents, build class timetables, and communicate with students via EduChat.',
     steps: [
       'Open the sidebar (☰) → set Class, Term, Year, Subject',
       'Tap "Apply & Start Grading" to open the spreadsheet',
       'Enter T1 (/15) + T2 (/15) + EX (/70) — RNK & GRD auto-calculate',
       'Tap "Submit to Principal" — grades go for review',
-      'Upload PDF/Word/Image lesson notes from Materials tab',
+      'Upload PDF/Word/Image lesson notes from the Materials tab',
+      'Post homework in the Assignments tab, then open "View & Mark" to score each student\'s submission with a grade and feedback',
+      'Use the Office tab to read documents sent to you and to send your own to the office, students, or parents',
     ],
   },
   {
@@ -62,12 +66,13 @@ const PLATFORM_ROLES = [
     icon: 'wallet',
     color: '#38A169',
     bgColor: '#C6F6D5',
-    description: 'Log every student fee payment with date, amount, and method. Issue digital receipts, track outstanding balances per student, and view real-time school revenue.',
+    description: 'Log every student fee payment with date, amount, and method. Issue digital receipts, track outstanding balances per student, view real-time school revenue, and send/receive official documents from the Finance tab.',
     steps: [
       'Search student by Admission Number',
       'Enter payment amount, date, and method (Cash / Bank / Mobile Money)',
       'Issue receipt — auto-sent to parent app',
       'View ledger of all transactions per term',
+      'In the Documents card, send fee notices/receipts to the office, parents, or teachers; files sent to you appear under "Received"',
     ],
   },
   {
@@ -76,10 +81,12 @@ const PLATFORM_ROLES = [
     icon: 'people',
     color: '#805AD5',
     bgColor: '#E9D8FD',
-    description: 'View report cards (after principal approval), check attendance history, see grades by term, play the WAEC Trivia Game to earn Brain Points (XP), and chat with teachers.',
+    description: 'View report cards (after principal approval), check attendance history, see grades by term, do assignments set by teachers, read documents from the school office, play the WAEC Trivia Game to earn Brain Points (XP), and chat with teachers.',
     steps: [
       'Register using school code + Admission Number',
       'View grades on the Academics tab once principal approves',
+      'Open the Assignments card to submit homework; once marked, see your grade, feedback, and download a letter-headed PDF',
+      'Check the Office Documents card for files shared by the school',
       'Download the official A4 PDF Report Card',
       'Play Trivia Hub to earn XP and climb the leaderboard',
     ],
@@ -139,6 +146,21 @@ const FAQS = [
     id: '10',
     question: 'How does the Principal return grades to a teacher?',
     answer: '1. Principal opens "Grade Review Center" from dashboard\n2. Sees all submitted batches (subject × term × year)\n3. Reviews the student grade table (T1, T2, EX, TOT, GRD, RNK)\n4. If something is wrong, taps "↩ Return" button\n5. Status changes to "draft" — teacher sees it needs correction\n6. Teacher fixes the scores and resubmits\n\nIf grades are correct, Principal taps "Approve & Print" — report cards become available.',
+  },
+  {
+    id: '11',
+    question: 'How do I send a document (PDF, Word, image) to staff, parents or students?',
+    answer: 'EduSalone has a built-in document system on every role.\n\nPrincipal/Secretary: open the ☰ sidebar → Comms & Docs → "Send Document". Give it a title, pick the audience (Teachers, Bursar, Secretary, All Staff, Students, Parents or Everyone), then choose a file.\n\nTeacher: Office tab → "Send a Document" (to the office, your students, or parents).\n\nBursar: Finance tab → Documents card → pick Office / Parents / Teachers / Everyone.\n\nRecipients see the file in their inbox (the principal/secretary Office Inbox, the teacher Office tab, the bursar "Received" list, or the student/parent Office Documents card) and tap Open / Download. Whoever sent a document can delete it from their sent list.',
+  },
+  {
+    id: '12',
+    question: 'How do assignments work (teacher and student)?',
+    answer: 'Teacher:\n1. Open the Assignments tab and pick the class\n2. Enter a title, instructions, optional due date, and optionally attach a file\n3. Post it — students in that class see it instantly\n4. Tap "View & Mark" to see submissions, then give each student a score, grade and feedback\n\nStudent:\n1. Open the Assignments card on the dashboard — a badge shows how many are still "to do"\n2. Type an answer and/or attach a file, then submit (you can update it until it is marked)\n3. Once the teacher marks it, you see your grade and feedback in green, and can download a school-letter-headed PDF.',
+  },
+  {
+    id: '13',
+    question: 'Where is the menu on the Principal dashboard?',
+    answer: 'The Command Centre uses a sidebar drawer.\n\nTap the ☰ icon at the top-right to slide it open. It shows your name and school, then three sections:\n\n• Overview — school code, metrics, attendance, notifications, grade review\n• Comms & Docs — the broadcaster, noticeboard, send document & office inbox\n• People — top scholars, authorize students, assign teacher roles, bio-roster\n\nTap a section to jump to it (the drawer closes itself). Logout is at the bottom of the drawer; tap the dimmed area to close without choosing.',
   },
 ];
 

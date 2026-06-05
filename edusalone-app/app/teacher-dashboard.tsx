@@ -447,7 +447,7 @@ export default function TeacherDashboard() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  const [mode, setMode] = useState<'grades' | 'evaluations' | 'attendance' | 'timetable' | 'bio' | 'feed' | 'chat' | 'review' | 'materials'>('grades');
+  const [mode, setMode] = useState<'grades' | 'evaluations' | 'attendance' | 'timetable' | 'bio' | 'feed' | 'chat' | 'review' | 'materials' | 'assignments' | 'documents'>('grades');
   const [pendingSubjects, setPendingSubjects] = useState<any[]>([]);
   const [approvedSubjects, setApprovedSubjects] = useState<any[]>([]);
   const [reviewLoading, setReviewLoading] = useState(false);
@@ -465,6 +465,25 @@ export default function TeacherDashboard() {
   const [materialTitle, setMaterialTitle] = useState('');
   const [materialSubject, setMaterialSubject] = useState('');
   const [materialTarget, setMaterialTarget] = useState<'class' | 'all'>('class');
+
+  // Assignment states
+  const [assignments, setAssignments] = useState<any[]>([]);
+  const [postingAssignment, setPostingAssignment] = useState(false);
+  const [assignmentForm, setAssignmentForm] = useState({ title: '', instructions: '', subject: '', dueDate: '' });
+  const [assignmentSubs, setAssignmentSubs] = useState<Record<string, number>>({});
+  const [markingAssignment, setMarkingAssignment] = useState<any>(null);
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [loadingSubs, setLoadingSubs] = useState(false);
+  const [markDrafts, setMarkDrafts] = useState<Record<string, { score: string; grade: string; feedback: string }>>({});
+  const [savingMarkId, setSavingMarkId] = useState<string | null>(null);
+  const [officeDocs, setOfficeDocs] = useState<any[]>([]);
+  const [loadingOfficeDocs, setLoadingOfficeDocs] = useState(false);
+  const [sendDocTitle, setSendDocTitle] = useState('');
+  const [sendDocNote, setSendDocNote] = useState('');
+  const [sendDocAudience, setSendDocAudience] = useState('office');
+  const [sendingMyDoc, setSendingMyDoc] = useState(false);
+  const [mySentDocs, setMySentDocs] = useState<any[]>([]);
+  const [showMySent, setShowMySent] = useState(false);
 
   const classOptions = ['JSS1', 'JSS2', 'JSS3', 'SS1', 'SS2', 'SS3'];
   const termOptions = ['First Term', 'Second Term', 'Third Term'];
@@ -525,6 +544,8 @@ export default function TeacherDashboard() {
   useEffect(() => { if (mode === 'review' && profile) fetchPendingSubjects(); }, [mode, term, selectedYear, profile]);
   useEffect(() => { if (mode === 'attendance' && students.length > 0) loadTodayAttendance(); }, [mode, students]);
   useEffect(() => { if (mode === 'materials' && profile) loadMaterials(); }, [mode, profile]);
+  useEffect(() => { if (mode === 'assignments' && profile) loadAssignments(); }, [mode, selectedClass, profile]);
+  useEffect(() => { if (mode === 'documents' && profile) { loadDocuments(); loadMySentDocs(); } }, [mode, profile]);
 
   async function fetchTeacherData() {
     setLoading(true);
@@ -798,6 +819,172 @@ export default function TeacherDashboard() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => doDelete() },
     ]);
+  }
+
+  function docAudLabel(a: string) {
+    return ({ office: 'the Office', students: 'Students', parents: 'Parents', bursar: 'the Bursar', teachers: 'Teachers', staff: 'All Staff', secretary: 'the Secretary', all: 'Everyone' } as any)[a] || a;
+  }
+
+  async function loadMySentDocs() {
+    if (!profile) return;
+    const { data } = await supabase.from('school_documents')
+      .select('*').eq('school_id', profile.school_id).eq('sender_id', profile.id)
+      .order('created_at', { ascending: false }).limit(30);
+    setMySentDocs(data || []);
+  }
+
+  async function sendMyDoc() {
+    const title = sendDocTitle.trim();
+    if (!title) { Alert.alert('Missing title', 'Add a document title first.'); return; }
+    if (Platform.OS !== 'web') { Alert.alert('Use the web app', 'Sending documents is available on the web portal for now.'); return; }
+    const aud = sendDocAudience;
+    const note = sendDocNote.trim();
+    const tClass = (aud === 'students' || aud === 'parents') ? (selectedClass || null) : null;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,image/*';
+    input.onchange = async () => {
+      const file: any = input.files && input.files[0];
+      if (!file) return;
+      setSendingMyDoc(true);
+      try {
+        const safeName = String(file.name).replace(/[^\w.\-]/g, '_');
+        const path = `${profile.school_id}/documents/${Date.now()}_${safeName}`;
+        const { error: upErr } = await supabase.storage.from('school-materials').upload(path, file, { contentType: file.type || undefined, upsert: false });
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage.from('school-materials').getPublicUrl(path);
+        const ext = (String(file.name).split('.').pop() || '').toLowerCase();
+        const ftype = ext === 'pdf' ? 'pdf' : ['doc', 'docx'].includes(ext) ? 'doc' : ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic'].includes(ext) ? 'image' : 'other';
+        const { error: insErr } = await supabase.from('school_documents').insert({
+          school_id: profile.school_id, sender_id: profile.id,
+          sender_name: profile.full_name || 'Teacher', sender_role: 'Teacher',
+          title, note: note || null, file_url: pub.publicUrl, file_name: file.name, file_type: ftype,
+          audience: aud, target_class: tClass,
+        });
+        if (insErr) throw insErr;
+        window.alert('✅ Sent\n"' + title + '" delivered to ' + docAudLabel(aud) + (tClass ? ' (' + tClass + ')' : '') + '.');
+        setSendDocTitle(''); setSendDocNote('');
+        loadMySentDocs();
+      } catch (e: any) { window.alert('Upload failed: ' + (e?.message || e)); }
+      setSendingMyDoc(false);
+    };
+    input.click();
+  }
+
+  async function deleteMyDoc(id: string) {
+    const go = async () => { await supabase.from('school_documents').delete().eq('id', id); setMySentDocs(prev => prev.filter((d: any) => d.id !== id)); };
+    if (Platform.OS === 'web') { if (window.confirm('Delete this document for all recipients?')) go(); return; }
+    Alert.alert('Delete document?', 'Removes it from all recipients.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: go }]);
+  }
+
+  async function loadDocuments() {
+    if (!profile) return;
+    setLoadingOfficeDocs(true);
+    const { data } = await supabase.from('school_documents')
+      .select('*').eq('school_id', profile.school_id)
+      .in('audience', ['all', 'staff', 'teachers'])
+      .order('created_at', { ascending: false });
+    setOfficeDocs(data || []);
+    setLoadingOfficeDocs(false);
+  }
+
+  function openDoc(url: string) {
+    if (!url) return;
+    if (Platform.OS === 'web') window.open(url, '_blank'); else Linking.openURL(url);
+  }
+
+  async function loadAssignments() {
+    if (!profile) return;
+    const { data } = await supabase.from('assignments')
+      .select('*')
+      .eq('school_id', profile.school_id)
+      .eq('teacher_id', profile.id)
+      .order('created_at', { ascending: false });
+    if (data) {
+      setAssignments(data);
+      const ids = data.map((a: any) => a.id);
+      if (ids.length) {
+        const { data: subs } = await supabase.from('assignment_submissions').select('assignment_id').in('assignment_id', ids);
+        const counts: Record<string, number> = {};
+        (subs || []).forEach((s: any) => { counts[s.assignment_id] = (counts[s.assignment_id] || 0) + 1; });
+        setAssignmentSubs(counts);
+      } else setAssignmentSubs({});
+    }
+  }
+
+  async function postAssignment() {
+    if (!assignmentForm.title.trim()) { Alert.alert('Missing Title', 'Give the assignment a title.'); return; }
+    if (!assignmentForm.instructions.trim()) { Alert.alert('Missing Instructions', 'Type the assignment question or instructions.'); return; }
+    setPostingAssignment(true);
+    try {
+      const { error } = await supabase.from('assignments').insert({
+        school_id: profile.school_id,
+        teacher_id: profile.id,
+        class_name: selectedClass,
+        subject: (assignmentForm.subject || subject || '').trim().toUpperCase() || null,
+        title: assignmentForm.title.trim(),
+        instructions: assignmentForm.instructions.trim(),
+        due_date: /^\d{4}-\d{2}-\d{2}$/.test(assignmentForm.dueDate.trim()) ? assignmentForm.dueDate.trim() : null,
+      });
+      if (error) throw error;
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('✅ Posted', `Assignment sent to all ${selectedClass} students.`);
+      setAssignmentForm({ title: '', instructions: '', subject: '', dueDate: '' });
+      setImpactScore(s => s + 20);
+      loadAssignments();
+    } catch (e: any) { Alert.alert('Could not post', e.message); }
+    setPostingAssignment(false);
+  }
+
+  async function deleteAssignment(id: string) {
+    const doDelete = async () => { await supabase.from('assignments').delete().eq('id', id); loadAssignments(); };
+    if (Platform.OS === 'web') { if (window.confirm('Delete this assignment?\n\nStudent submissions will also be removed.')) doDelete(); return; }
+    Alert.alert('Delete Assignment?', 'Student submissions will also be removed.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => doDelete() },
+    ]);
+  }
+
+  async function openMarking(a: any) {
+    setMarkingAssignment(a);
+    setLoadingSubs(true);
+    setSubmissions([]);
+    const { data: subs } = await supabase.from('assignment_submissions')
+      .select('*').eq('assignment_id', a.id).order('submitted_at', { ascending: true });
+    let rows = subs || [];
+    if (rows.length) {
+      const ids = rows.map((s: any) => s.student_id);
+      const { data: studs } = await supabase.from('students')
+        .select('id, admission_number, users!user_id(full_name)').in('id', ids);
+      const nameMap: Record<string, string> = {};
+      (studs || []).forEach((st: any) => { nameMap[st.id] = st.users?.full_name || st.admission_number || 'Student'; });
+      rows = rows.map((s: any) => ({ ...s, _name: nameMap[s.student_id] || 'Student' }));
+      const drafts: Record<string, any> = {};
+      rows.forEach((s: any) => { drafts[s.id] = { score: s.score != null ? String(s.score) : '', grade: s.grade || '', feedback: s.feedback || '' }; });
+      setMarkDrafts(drafts);
+    }
+    setSubmissions(rows);
+    setLoadingSubs(false);
+  }
+
+  async function saveMark(sub: any) {
+    const d = markDrafts[sub.id] || { score: '', grade: '', feedback: '' };
+    setSavingMarkId(sub.id);
+    try {
+      const { error } = await supabase.from('assignment_submissions').update({
+        score: d.score.trim() === '' ? null : Number(d.score),
+        grade: d.grade.trim() || null,
+        feedback: d.feedback.trim() || null,
+        status: 'marked',
+        marked_by: profile.id,
+        marked_at: new Date().toISOString(),
+      }).eq('id', sub.id);
+      if (error) throw error;
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSubmissions(prev => prev.map((s: any) => s.id === sub.id ? { ...s, score: d.score.trim() === '' ? null : Number(d.score), grade: d.grade.trim() || null, feedback: d.feedback.trim() || null, status: 'marked' } : s));
+      Alert.alert('✅ Marked', `Grade sent to ${sub._name || 'student'}.`);
+    } catch (e: any) { Alert.alert('Could not save', e.message); }
+    setSavingMarkId(null);
   }
 
   async function saveIndividualGrade() {
@@ -1434,6 +1621,8 @@ function confirmApproveSubject() {
             { icon: 'checkmark-circle', label: 'Roll Call', mode: 'attendance' },
             { icon: 'calendar', label: 'Timetable', mode: 'timetable' },
             { icon: 'cloud-upload', label: 'Materials', mode: 'materials' },
+            { icon: 'create', label: 'Assignments', mode: 'assignments' },
+            { icon: 'folder-open', label: 'Office', mode: 'documents' },
             { icon: 'person', label: 'My Bio', mode: 'bio' },
             { icon: 'megaphone', label: 'Feed', mode: 'feed' },
           ] as any[]).map((tab: any) => (
@@ -1806,6 +1995,223 @@ function confirmApproveSubject() {
                   </TouchableOpacity>
                 </View>
               ))}
+          <View style={{ height: 100 }} />
+        </ScrollView>
+      )}
+
+      {/* ══════════════════════════════════════ */}
+      {/* ASSIGNMENTS MODE                       */}
+      {/* ══════════════════════════════════════ */}
+      {mode === 'assignments' && !markingAssignment && (
+        <ScrollView style={{ flex: 1, paddingHorizontal: 15 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <View style={{ backgroundColor: '#FFF', borderRadius: 16, padding: 20, marginBottom: 16, elevation: 2, borderLeftWidth: 4, borderLeftColor: '#9F7AEA' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+              <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: '#FAF5FF', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                <Ionicons name="create" size={24} color="#9F7AEA" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: '900' as any, color: '#1A365D' }}>Post Assignment</Text>
+                <Text style={{ fontSize: 11, color: '#718096', marginTop: 2 }}>Goes to all {selectedClass} students</Text>
+              </View>
+            </View>
+
+            <Text style={styles.label}>Title *</Text>
+            <TextInput style={[styles.bioInput, { marginBottom: 10 }]} placeholder="e.g. Algebra Homework — Exercise 4" value={assignmentForm.title} onChangeText={t => setAssignmentForm(f => ({ ...f, title: t }))} />
+
+            <Text style={styles.label}>Instructions / Question *</Text>
+            <TextInput style={[styles.bioInput, { height: 110, textAlignVertical: 'top', marginBottom: 10 }]} placeholder="Type the assignment question or instructions here..." multiline value={assignmentForm.instructions} onChangeText={t => setAssignmentForm(f => ({ ...f, instructions: t }))} />
+
+            <View style={{ flexDirection: 'row' }}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={styles.label}>Subject</Text>
+                <TextInput style={styles.bioInput} placeholder={subject || 'e.g. Mathematics'} value={assignmentForm.subject} onChangeText={t => setAssignmentForm(f => ({ ...f, subject: t }))} autoCapitalize="characters" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.label}>Due Date</Text>
+                <TextInput style={styles.bioInput} placeholder="YYYY-MM-DD" value={assignmentForm.dueDate} onChangeText={t => setAssignmentForm(f => ({ ...f, dueDate: t }))} />
+              </View>
+            </View>
+
+            <TouchableOpacity style={{ backgroundColor: postingAssignment ? '#A0AEC0' : '#9F7AEA', borderRadius: 12, padding: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 4 }} onPress={postAssignment} disabled={postingAssignment}>
+              {postingAssignment
+                ? <ActivityIndicator color="#FFF" />
+                : <><Ionicons name="send" size={18} color="#FFF" style={{ marginRight: 8 }} /><Text style={{ color: '#FFF', fontWeight: '900' as any, fontSize: 14 }}>Post to {selectedClass}</Text></>}
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.label, { color: '#1A365D', fontSize: 12, marginBottom: 10 }]}>📋 Posted Assignments ({assignments.length})</Text>
+          {assignments.length === 0
+            ? <View style={{ alignItems: 'center', marginTop: 20, marginBottom: 40 }}>
+                <Ionicons name="document-text-outline" size={50} color="#CBD5E0" />
+                <Text style={{ color: '#A0AEC0', marginTop: 10, fontSize: 14, fontStyle: 'italic' }}>No assignments posted yet.</Text>
+              </View>
+            : assignments.map((a: any) => (
+                <View key={a.id} style={{ backgroundColor: '#FFF', borderRadius: 14, padding: 16, marginBottom: 10, elevation: 1, borderLeftWidth: 3, borderLeftColor: '#9F7AEA' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={{ fontWeight: '900' as any, color: '#1A365D', fontSize: 15 }}>{a.title}</Text>
+                      <Text style={{ color: '#718096', fontSize: 11, marginTop: 2 }}>{a.class_name}{a.subject ? ` • ${a.subject}` : ''}{a.due_date ? ` • Due ${a.due_date}` : ''}</Text>
+                      <Text style={{ color: '#4A5568', fontSize: 12, marginTop: 6, lineHeight: 18 }} numberOfLines={3}>{a.instructions}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => deleteAssignment(a.id)} style={{ backgroundColor: '#FFF5F5', borderRadius: 8, padding: 8 }}>
+                      <Ionicons name="trash-outline" size={16} color="#E53E3E" />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F1F5F9' }}>
+                    <Ionicons name="people" size={14} color="#9F7AEA" style={{ marginRight: 5 }} />
+                    <Text style={{ color: '#6B46C1', fontWeight: '900' as any, fontSize: 12 }}>{assignmentSubs[a.id] || 0} submission{(assignmentSubs[a.id] || 0) === 1 ? '' : 's'}</Text>
+                    <TouchableOpacity onPress={() => openMarking(a)} style={{ marginLeft: 'auto' as any, backgroundColor: '#9F7AEA', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, flexDirection: 'row', alignItems: 'center' }}>
+                      <Ionicons name="checkmark-done" size={13} color="#FFF" style={{ marginRight: 4 }} />
+                      <Text style={{ color: '#FFF', fontWeight: '900' as any, fontSize: 11 }}>View & Mark</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+          <View style={{ height: 100 }} />
+        </ScrollView>
+      )}
+
+      {/* ══════════════════════════════════════ */}
+      {/* ASSIGNMENT MARKING VIEW                */}
+      {/* ══════════════════════════════════════ */}
+      {mode === 'assignments' && markingAssignment && (
+        <ScrollView style={{ flex: 1, paddingHorizontal: 15 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <TouchableOpacity onPress={() => setMarkingAssignment(null)} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, marginTop: 4 }}>
+            <Ionicons name="arrow-back" size={20} color="#9F7AEA" />
+            <Text style={{ color: '#9F7AEA', fontWeight: '900' as any, fontSize: 14, marginLeft: 6 }}>Back to assignments</Text>
+          </TouchableOpacity>
+
+          <View style={{ backgroundColor: '#FAF5FF', borderRadius: 14, padding: 16, marginBottom: 14, borderLeftWidth: 4, borderLeftColor: '#9F7AEA' }}>
+            <Text style={{ fontSize: 16, fontWeight: '900' as any, color: '#1A365D' }}>{markingAssignment.title}</Text>
+            <Text style={{ color: '#718096', fontSize: 11, marginTop: 2 }}>{markingAssignment.class_name}{markingAssignment.subject ? ` • ${markingAssignment.subject}` : ''}{markingAssignment.due_date ? ` • Due ${markingAssignment.due_date}` : ''}</Text>
+            <Text style={{ color: '#4A5568', fontSize: 13, marginTop: 8, lineHeight: 19 }}>{markingAssignment.instructions}</Text>
+          </View>
+
+          {loadingSubs ? <ActivityIndicator color="#9F7AEA" style={{ padding: 20 }} /> :
+            submissions.length === 0 ? (
+              <View style={{ alignItems: 'center', marginTop: 20, marginBottom: 40 }}>
+                <Ionicons name="people-outline" size={50} color="#CBD5E0" />
+                <Text style={{ color: '#A0AEC0', marginTop: 10, fontStyle: 'italic' }}>No student has submitted yet.</Text>
+              </View>
+            ) : (
+              submissions.map((s: any) => {
+                const d = markDrafts[s.id] || { score: '', grade: '', feedback: '' };
+                const isMarked = s.status === 'marked';
+                return (
+                  <View key={s.id} style={{ backgroundColor: '#FFF', borderRadius: 14, padding: 16, marginBottom: 12, elevation: 1, borderLeftWidth: 3, borderLeftColor: isMarked ? '#38A169' : '#D69E2E' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                      <Ionicons name="person-circle" size={22} color="#9F7AEA" style={{ marginRight: 6 }} />
+                      <Text style={{ fontWeight: '900' as any, color: '#1A365D', fontSize: 14, flex: 1 }}>{s._name}</Text>
+                      {isMarked && <View style={{ backgroundColor: '#C6F6D5', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 }}><Text style={{ color: '#276749', fontSize: 10, fontWeight: '900' as any }}>MARKED</Text></View>}
+                    </View>
+
+                    <Text style={{ color: '#718096', fontSize: 11 }}>Answer:</Text>
+                    <Text style={{ color: '#2D3748', fontSize: 13, marginTop: 2, marginBottom: 12, lineHeight: 19 }}>{s.answer_text || '(no text answer)'}</Text>
+
+                    <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={styles.label}>Score</Text>
+                        <TextInput style={styles.bioInput} placeholder="e.g. 18" keyboardType="numeric" value={d.score} onChangeText={t => setMarkDrafts(prev => ({ ...prev, [s.id]: { ...d, score: t } }))} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.label}>Grade</Text>
+                        <TextInput style={styles.bioInput} placeholder="e.g. A1 / 18 of 20" value={d.grade} onChangeText={t => setMarkDrafts(prev => ({ ...prev, [s.id]: { ...d, grade: t } }))} />
+                      </View>
+                    </View>
+
+                    <Text style={styles.label}>Feedback / Comment</Text>
+                    <TextInput style={[styles.bioInput, { height: 70, textAlignVertical: 'top', marginBottom: 10 }]} placeholder="Well done / Re-do question 2..." multiline value={d.feedback} onChangeText={t => setMarkDrafts(prev => ({ ...prev, [s.id]: { ...d, feedback: t } }))} />
+
+                    <TouchableOpacity onPress={() => saveMark(s)} disabled={savingMarkId === s.id} style={{ backgroundColor: savingMarkId === s.id ? '#A0AEC0' : (isMarked ? '#38A169' : '#9F7AEA'), borderRadius: 10, padding: 13, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+                      {savingMarkId === s.id ? <ActivityIndicator color="#FFF" /> : <><Ionicons name="send" size={15} color="#FFF" style={{ marginRight: 6 }} /><Text style={{ color: '#FFF', fontWeight: '900' as any, fontSize: 13 }}>{isMarked ? 'Update Grade' : 'Send Grade to Student'}</Text></>}
+                    </TouchableOpacity>
+                  </View>
+                );
+              })
+            )}
+          <View style={{ height: 100 }} />
+        </ScrollView>
+      )}
+
+      {/* ══════════════════════════════════════ */}
+      {/* OFFICE DOCUMENTS (INBOX)               */}
+      {/* ══════════════════════════════════════ */}
+      {mode === 'documents' && (
+        <ScrollView style={{ flex: 1, paddingHorizontal: 15 }} showsVerticalScrollIndicator={false}>
+          {/* SEND A DOCUMENT */}
+          <View style={{ backgroundColor: '#FFF', borderRadius: 16, padding: 16, marginTop: 14, marginBottom: 14, elevation: 2, borderLeftWidth: 4, borderLeftColor: '#9F7AEA' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+              <Ionicons name="paper-plane" size={20} color="#9F7AEA" style={{ marginRight: 8 }} />
+              <Text style={{ fontSize: 15, fontWeight: '900' as any, color: '#1A365D' }}>Send a Document</Text>
+            </View>
+            <TextInput style={styles.bioInput} placeholder="Title (e.g. Lesson Plan Week 5)" value={sendDocTitle} onChangeText={setSendDocTitle} />
+            <TextInput style={[styles.bioInput, { height: 60, textAlignVertical: 'top', marginTop: 8 }]} placeholder="Short note (optional)" multiline value={sendDocNote} onChangeText={setSendDocNote} />
+            <Text style={{ fontSize: 10, color: '#718096', fontWeight: '900' as any, marginTop: 10, marginBottom: 6 }}>SEND TO</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+              {[{ key: 'office', label: 'Office' }, { key: 'students', label: `Students${selectedClass ? ' · ' + selectedClass : ''}` }, { key: 'parents', label: `Parents${selectedClass ? ' · ' + selectedClass : ''}` }].map((opt) => {
+                const active = sendDocAudience === opt.key;
+                return (
+                  <TouchableOpacity key={opt.key} onPress={() => setSendDocAudience(opt.key)} style={{ backgroundColor: active ? '#9F7AEA' : '#EDF2F7', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 7, marginRight: 8, marginBottom: 8 }}>
+                    <Text style={{ color: active ? '#FFF' : '#4A5568', fontWeight: '900' as any, fontSize: 12 }}>{opt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TouchableOpacity onPress={sendMyDoc} disabled={sendingMyDoc} style={{ backgroundColor: sendingMyDoc ? '#A0AEC0' : '#9F7AEA', borderRadius: 10, padding: 13, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 4 }}>
+              {sendingMyDoc ? <ActivityIndicator color="#FFF" /> : <><Ionicons name="cloud-upload" size={16} color="#FFF" style={{ marginRight: 6 }} /><Text style={{ color: '#FFF', fontWeight: '900' as any, fontSize: 13 }}>Choose File & Send</Text></>}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowMySent(!showMySent)} style={{ alignItems: 'center', paddingTop: 12 }}>
+              <Text style={{ color: '#9F7AEA', fontWeight: '900' as any, fontSize: 12 }}>{showMySent ? '▲ Hide my sent documents' : `▼ My sent documents (${mySentDocs.length})`}</Text>
+            </TouchableOpacity>
+            {showMySent && (
+              <View style={{ marginTop: 8 }}>
+                {mySentDocs.length === 0 ? <Text style={{ color: '#A0AEC0', fontStyle: 'italic', textAlign: 'center', fontSize: 12 }}>You haven't sent any documents.</Text> :
+                  mySentDocs.map((d: any) => (
+                    <View key={d.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
+                      <Ionicons name={d.file_type === 'image' ? 'image' : d.file_type === 'pdf' ? 'document-text' : 'document'} size={18} color="#9F7AEA" style={{ marginRight: 8 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '900' as any, color: '#1A365D' }} numberOfLines={1}>{d.title}</Text>
+                        <Text style={{ fontSize: 10, color: '#A0AEC0', marginTop: 1 }}>To {docAudLabel(d.audience)}{d.target_class ? ` · ${d.target_class}` : ''}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => openDoc(d.file_url)} style={{ backgroundColor: '#EBF8FF', borderRadius: 8, padding: 7, marginLeft: 6 }}>
+                        <Ionicons name="open-outline" size={14} color="#3182CE" />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => deleteMyDoc(d.id)} style={{ backgroundColor: '#FFF5F5', borderRadius: 8, padding: 7, marginLeft: 6 }}>
+                        <Ionicons name="trash-outline" size={14} color="#E53E3E" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+              </View>
+            )}
+          </View>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 14 }}>
+            <Ionicons name="folder-open" size={22} color="#3182CE" style={{ marginRight: 8 }} />
+            <Text style={{ fontSize: 18, fontWeight: '900' as any, color: '#1A365D', flex: 1 }}>From the Office</Text>
+            <TouchableOpacity onPress={loadDocuments}><Ionicons name="refresh" size={18} color="#3182CE" /></TouchableOpacity>
+          </View>
+          {loadingOfficeDocs ? <ActivityIndicator color="#3182CE" style={{ marginTop: 30 }} /> :
+            officeDocs.length === 0 ? (
+              <View style={{ alignItems: 'center', marginTop: 40 }}>
+                <Ionicons name="file-tray-outline" size={50} color="#CBD5E0" />
+                <Text style={{ color: '#A0AEC0', marginTop: 10, fontStyle: 'italic' }}>No documents from the office yet.</Text>
+              </View>
+            ) : officeDocs.map((d: any) => (
+              <View key={d.id} style={{ backgroundColor: '#FFF', borderRadius: 14, padding: 16, marginBottom: 10, elevation: 1, borderLeftWidth: 3, borderLeftColor: '#3182CE' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name={d.file_type === 'image' ? 'image' : d.file_type === 'pdf' ? 'document-text' : 'document'} size={26} color="#3182CE" style={{ marginRight: 12 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: '900' as any, color: '#1A365D', fontSize: 15 }}>{d.title}</Text>
+                    <Text style={{ color: '#718096', fontSize: 11, marginTop: 2 }}>{d.sender_name || 'Office'}{d.sender_role ? ` (${d.sender_role})` : ''} · {new Date(d.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</Text>
+                  </View>
+                </View>
+                {d.note ? <Text style={{ color: '#4A5568', fontSize: 13, marginTop: 8, lineHeight: 19 }}>{d.note}</Text> : null}
+                <TouchableOpacity onPress={() => openDoc(d.file_url)} style={{ backgroundColor: '#3182CE', borderRadius: 10, padding: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 12 }}>
+                  <Ionicons name="download-outline" size={16} color="#FFF" style={{ marginRight: 6 }} />
+                  <Text style={{ color: '#FFF', fontWeight: '900' as any, fontSize: 13 }}>Open / Download</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
           <View style={{ height: 100 }} />
         </ScrollView>
       )}

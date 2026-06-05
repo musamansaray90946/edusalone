@@ -9,6 +9,7 @@ import {
   Alert,
   Clipboard,
   Dimensions,
+  Linking,
   Modal,
   Platform,
   RefreshControl,
@@ -131,6 +132,8 @@ export default function PrincipalDashboard() {
   // Teacher role assignment state
   const [staff, setStaff] = useState<any[]>([]);
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [showStaffRoles, setShowStaffRoles] = useState(false);
+  const [staffSearch, setStaffSearch] = useState('');
 
   const [studentForm, setStudentForm] = useState({ 
     fullName: '', admissionId: '', assignedClass: '', gender: 'Male', birthDate: '' 
@@ -140,7 +143,21 @@ export default function PrincipalDashboard() {
   const [dispatchType, setDispatchType] = useState<'Notice' | 'Fee Alert'>('Notice');
   const [isDispatching, setIsDispatching] = useState(false);
 
+  // Send Document state
+  const [docTitle, setDocTitle] = useState('');
+  const [docNote, setDocNote] = useState('');
+  const [docAudience, setDocAudience] = useState('teachers');
+  const [docTargetClass, setDocTargetClass] = useState('');
+  const [sendingDoc, setSendingDoc] = useState(false);
+  const [myDocs, setMyDocs] = useState<any[]>([]);
+  const [showDocs, setShowDocs] = useState(false);
+  const [officeInbox, setOfficeInbox] = useState<any[]>([]);
+  const [loadingInbox, setLoadingInbox] = useState(false);
+  const [section, setSection] = useState<'overview' | 'comms' | 'people'>('overview');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
   useEffect(() => { initializeCommandCenter(); }, []);
+  useEffect(() => { if (profile?.school_id) { loadMyDocs(); loadOfficeInbox(); } }, [profile]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -222,7 +239,7 @@ export default function PrincipalDashboard() {
           reviewer:users!reviewed_by(full_name)
         `)
         .eq('school_id', profile.school_id)
-        .in('submission_status', ['pending_review', 'published', 'approved'])
+        .eq('submission_status', 'published')
         .order('submitted_at', { ascending: false });
 
       if (error) {
@@ -312,7 +329,7 @@ export default function PrincipalDashboard() {
         .update({ submission_status: 'principal_approved' })
         .eq('school_id', profile?.school_id)
         .eq('subject', subject).eq('term', term).eq('academic_year', year)
-        .in('submission_status', ['pending_review', 'published', 'approved']);
+        .eq('submission_status', 'published');
       if (error) { window.alert('Error: ' + error.message); return; }
       window.alert(`✅ Approved!\n${subject} grades cleared for report card printing.`);
       fetchPendingReports();
@@ -325,7 +342,7 @@ export default function PrincipalDashboard() {
           .update({ submission_status: 'principal_approved' })
           .eq('school_id', profile?.school_id)
           .eq('subject', subject).eq('term', term).eq('academic_year', year)
-          .in('submission_status', ['pending_review', 'published', 'approved']);
+          .eq('submission_status', 'published');
         if (error) { Alert.alert('Error', error.message); return; }
         if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('✅ Approved', `${subject} grades cleared for report card printing.`);
@@ -393,12 +410,24 @@ export default function PrincipalDashboard() {
   async function assignTeacherRole(teacherId: string, type: 'class' | 'subject', className: string | null) {
     setAssigningId(teacherId);
     try {
+      if (type === 'class' && className) {
+        // One Form Teacher per class: demote whoever currently holds this class.
+        await supabase.from('users')
+          .update({ teacher_type: 'subject', assigned_class: null })
+          .eq('school_id', profile.school_id).eq('assigned_class', className).eq('teacher_type', 'class').neq('id', teacherId);
+      }
       const update = type === 'class'
         ? { teacher_type: 'class', assigned_class: className }
         : { teacher_type: 'subject', assigned_class: null };
       const { error } = await supabase.from('users').update(update).eq('id', teacherId);
       if (error) throw error;
-      setStaff(prev => prev.map(t => t.id === teacherId ? { ...t, ...update } : t));
+      setStaff(prev => prev.map(t => {
+        if (t.id === teacherId) return { ...t, ...update };
+        if (type === 'class' && t.teacher_type === 'class' && t.assigned_class === className) {
+          return { ...t, teacher_type: 'subject', assigned_class: null };
+        }
+        return t;
+      }));
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       const m = e.message || 'Could not update role.';
@@ -468,6 +497,84 @@ export default function PrincipalDashboard() {
       initializeCommandCenter();
     } catch (e: any) { Alert.alert('Provisioning Error', e.message); }
     setIsProvisioning(false);
+  }
+
+  function audienceLabel(a: string) {
+    return ({ teachers: 'all Teachers', secretary: 'the Secretary', bursar: 'the Bursar', staff: 'all Staff', students: 'all Students', parents: 'all Parents', all: 'Everyone' } as any)[a] || a;
+  }
+
+  function openDoc(url: string) {
+    if (!url) return;
+    if (Platform.OS === 'web') window.open(url, '_blank'); else Linking.openURL(url);
+  }
+
+  async function loadOfficeInbox() {
+    if (!profile?.school_id) return;
+    setLoadingInbox(true);
+    const { data } = await supabase.from('school_documents')
+      .select('*').eq('school_id', profile.school_id)
+      .in('audience', ['all', 'staff', 'secretary', 'office'])
+      .order('created_at', { ascending: false }).limit(40);
+    setOfficeInbox(data || []);
+    setLoadingInbox(false);
+  }
+
+  async function deleteInboxDoc(id: string) {
+    const go = async () => { await supabase.from('school_documents').delete().eq('id', id); setOfficeInbox(prev => prev.filter((d: any) => d.id !== id)); setMyDocs(prev => prev.filter((d: any) => d.id !== id)); };
+    if (Platform.OS === 'web') { if (window.confirm('Delete this document permanently?')) go(); return; }
+    Alert.alert('Delete document?', 'This removes it permanently.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: go }]);
+  }
+
+  async function loadMyDocs() {
+    if (!profile?.school_id) return;
+    const { data } = await supabase.from('school_documents')
+      .select('*').eq('school_id', profile.school_id)
+      .order('created_at', { ascending: false }).limit(30);
+    setMyDocs(data || []);
+  }
+
+  async function sendDocument() {
+    const title = docTitle.trim();
+    if (!title) { if (Platform.OS === 'web') window.alert('Add a document title first.'); else Alert.alert('Missing title', 'Add a document title first.'); return; }
+    if (Platform.OS !== 'web') { Alert.alert('Use the web portal', 'Sending documents is available on the web app for now.'); return; }
+    const aud = docAudience;
+    const note = docNote.trim();
+    const tClass = (aud === 'students' || aud === 'parents') && docTargetClass.trim() ? docTargetClass.trim() : null;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,image/*';
+    input.onchange = async () => {
+      const file: any = input.files && input.files[0];
+      if (!file) return;
+      setSendingDoc(true);
+      try {
+        const safeName = String(file.name).replace(/[^\w.\-]/g, '_');
+        const path = `${profile.school_id}/documents/${Date.now()}_${safeName}`;
+        const { error: upErr } = await supabase.storage.from('school-materials').upload(path, file, { contentType: file.type || undefined, upsert: false });
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage.from('school-materials').getPublicUrl(path);
+        const ext = (String(file.name).split('.').pop() || '').toLowerCase();
+        const ftype = ext === 'pdf' ? 'pdf' : ['doc', 'docx'].includes(ext) ? 'doc' : ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic'].includes(ext) ? 'image' : 'other';
+        const { error: insErr } = await supabase.from('school_documents').insert({
+          school_id: profile.school_id, sender_id: profile.id,
+          sender_name: profile.full_name || 'School Office', sender_role: profile.role || 'Principal',
+          title, note: note || null, file_url: pub.publicUrl, file_name: file.name, file_type: ftype,
+          audience: aud, target_class: tClass,
+        });
+        if (insErr) throw insErr;
+        window.alert(`✅ Sent\n"${title}" delivered to ${audienceLabel(aud)}${tClass ? ' (' + tClass + ')' : ''}.`);
+        setDocTitle(''); setDocNote(''); setDocTargetClass('');
+        loadMyDocs();
+      } catch (e: any) { window.alert('Upload failed: ' + (e?.message || e)); }
+      setSendingDoc(false);
+    };
+    input.click();
+  }
+
+  async function deleteDocument(id: string) {
+    const go = async () => { await supabase.from('school_documents').delete().eq('id', id); setMyDocs(prev => prev.filter(d => d.id !== id)); };
+    if (Platform.OS === 'web') { if (window.confirm('Delete this document for all recipients?')) go(); return; }
+    Alert.alert('Delete document?', 'Removes it from all recipients.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: go }]);
   }
 
   async function dispatchAnnouncement() {
@@ -586,6 +693,11 @@ export default function PrincipalDashboard() {
 
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={PRIMARY_NAVY} /></View>;
 
+  // ── ROLE GATE: bursar & secretary share this screen but must NOT get principal-only powers ──
+  const roleKey = (profile?.role || '').toLowerCase();
+  const isRestrictedAdmin = roleKey === 'bursar' || roleKey === 'secretary';
+  const canSeePrincipalTools = !isRestrictedAdmin; // principal keeps everything even if role is null/'Principal'
+
   // Count pending grades for badge
   const pendingCount = pendingReports.filter((r: any) => r.status === 'pending_review').length;
 
@@ -606,11 +718,17 @@ export default function PrincipalDashboard() {
             <Text style={styles.roleTag}>COMMAND CENTER</Text>
             <Text style={styles.principalName}>{profile?.full_name} 👋</Text>
           </View>
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleSecureLogout}>
-            <Ionicons name="power-outline" size={20} color={DANGER_RED} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <TouchableOpacity style={styles.menuBtn} onPress={() => setDrawerOpen(true)}>
+              <Ionicons name="menu" size={24} color={PRIMARY_NAVY} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.logoutBtn} onPress={handleSecureLogout}>
+              <Ionicons name="power-outline" size={20} color={DANGER_RED} />
+            </TouchableOpacity>
+          </View>
         </View>
 
+        {section === 'overview' && (<>
         <View style={styles.vaultCard}>
           <View style={styles.row}>
             <Ionicons name="business" size={24} color="#FFF" />
@@ -701,8 +819,11 @@ export default function PrincipalDashboard() {
             </View>
           )}
         </View>
+        </>)}
 
-        {/* BROADCASTER */}
+        {section === 'comms' && (<>
+        {/* BROADCASTER — principal only */}
+        {canSeePrincipalTools && (
         <View style={styles.card}>
           <View style={styles.rowBetween}>
             <Text style={styles.cardTitle}>Global Broadcaster</Text>
@@ -721,9 +842,114 @@ export default function PrincipalDashboard() {
             {isDispatching ? <ActivityIndicator color="#FFF" /> : <Text style={styles.btnTxt}>Dispatch Signal</Text>}
           </TouchableOpacity>
         </View>
+        )}
 
         <NoticeBoardManager schoolId={profile?.school_id} />
 
+        {/* ── SEND DOCUMENT (PDF / Word / Image) ── */}
+        <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>📎 Send Document</Text>
+              <Text style={{ fontSize: 12, color: '#718096', marginTop: 3 }}>PDF, Word or image — to staff, students or parents</Text>
+            </View>
+            <Ionicons name="cloud-upload-outline" size={22} color={PRIMARY_NAVY} />
+          </View>
+
+          <TextInput style={styles.input} placeholder="Document title (e.g. Term 2 Fee Structure)" value={docTitle} onChangeText={setDocTitle} />
+          <TextInput style={[styles.input, { height: 70, textAlignVertical: 'top' }]} placeholder="Short note (optional)" multiline value={docNote} onChangeText={setDocNote} />
+
+          <Text style={{ fontSize: 10, color: '#718096', fontWeight: '900', marginBottom: 8, letterSpacing: 0.5 }}>SEND TO</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 }}>
+            {[
+              { key: 'teachers', label: 'Teachers' },
+              { key: 'secretary', label: 'Secretary' },
+              { key: 'bursar', label: 'Bursar' },
+              { key: 'staff', label: 'All Staff' },
+              { key: 'students', label: 'Students' },
+              { key: 'parents', label: 'Parents' },
+              { key: 'all', label: 'Everyone' },
+            ].map((opt) => {
+              const active = docAudience === opt.key;
+              return (
+                <TouchableOpacity key={opt.key} onPress={() => setDocAudience(opt.key)}
+                  style={{ backgroundColor: active ? PRIMARY_NAVY : '#EDF2F7', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8, marginBottom: 8 }}>
+                  <Text style={{ color: active ? '#FFF' : '#4A5568', fontWeight: '900', fontSize: 12 }}>{opt.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {(docAudience === 'students' || docAudience === 'parents') && (
+            <TextInput style={styles.input} placeholder="Limit to one class e.g. JSS1 (blank = all classes)" value={docTargetClass} onChangeText={setDocTargetClass} />
+          )}
+
+          <TouchableOpacity style={[styles.mainBtn, { backgroundColor: SECONDARY_BLUE, marginTop: 6 }]} onPress={sendDocument} disabled={sendingDoc}>
+            {sendingDoc ? <ActivityIndicator color="#FFF" /> : <Text style={styles.btnTxt}>📎 Choose File & Send</Text>}
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => setShowDocs(!showDocs)} style={{ alignItems: 'center', paddingTop: 14 }}>
+            <Text style={{ color: SECONDARY_BLUE, fontWeight: '900', fontSize: 13 }}>{showDocs ? '▲ Hide sent documents' : `▼ Sent documents (${myDocs.length})`}</Text>
+          </TouchableOpacity>
+
+          {showDocs && (
+            <View style={{ marginTop: 12 }}>
+              {myDocs.length === 0 ? <Text style={styles.emptyTxt}>No documents sent yet.</Text> :
+                myDocs.map((d: any) => (
+                  <View key={d.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
+                    <Ionicons name={d.file_type === 'image' ? 'image' : d.file_type === 'pdf' ? 'document-text' : 'document'} size={20} color={SECONDARY_BLUE} style={{ marginRight: 10 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '900', color: PRIMARY_NAVY }} numberOfLines={1}>{d.title}</Text>
+                      <Text style={{ fontSize: 10, color: '#A0AEC0', marginTop: 2 }}>To {audienceLabel(d.audience)}{d.target_class ? ` · ${d.target_class}` : ''} · {new Date(d.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => openDoc(d.file_url)} style={{ backgroundColor: '#EBF8FF', borderRadius: 8, padding: 8 }}>
+                      <Ionicons name="open-outline" size={15} color={SECONDARY_BLUE} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => deleteDocument(d.id)} style={{ backgroundColor: '#FEE2E2', borderRadius: 8, padding: 8, marginLeft: 8 }}>
+                      <Ionicons name="trash-outline" size={15} color={DANGER_RED} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+            </View>
+          )}
+        </View>
+
+        {/* ── OFFICE INBOX (received documents) ── */}
+        <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>📥 Office Inbox</Text>
+              <Text style={{ fontSize: 12, color: '#718096', marginTop: 3 }}>Documents sent to the office by staff &amp; parents</Text>
+            </View>
+            <TouchableOpacity onPress={loadOfficeInbox}><Ionicons name="refresh" size={18} color={PRIMARY_NAVY} /></TouchableOpacity>
+          </View>
+          {loadingInbox ? <ActivityIndicator color={PRIMARY_NAVY} style={{ marginTop: 12 }} /> :
+            officeInbox.length === 0 ? <Text style={styles.emptyTxt}>No documents received yet.</Text> :
+            officeInbox.map((d: any) => (
+              <View key={d.id} style={{ borderWidth: 1, borderColor: '#EDF2F7', borderRadius: 12, padding: 12, marginTop: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name={d.file_type === 'image' ? 'image' : d.file_type === 'pdf' ? 'document-text' : 'document'} size={22} color={SECONDARY_BLUE} style={{ marginRight: 10 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '900', color: PRIMARY_NAVY }} numberOfLines={1}>{d.title}</Text>
+                    <Text style={{ fontSize: 10, color: '#A0AEC0', marginTop: 2 }}>{d.sender_name || 'Unknown'}{d.sender_role ? ` (${d.sender_role})` : ''} · To {audienceLabel(d.audience)} · {new Date(d.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</Text>
+                  </View>
+                </View>
+                {d.note ? <Text style={{ fontSize: 12, color: '#4A5568', marginTop: 6 }}>{d.note}</Text> : null}
+                <View style={{ flexDirection: 'row', marginTop: 10 }}>
+                  <TouchableOpacity onPress={() => openDoc(d.file_url)} style={{ flex: 1, backgroundColor: SECONDARY_BLUE, borderRadius: 10, padding: 11, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginRight: 8 }}>
+                    <Ionicons name="download-outline" size={15} color="#FFF" style={{ marginRight: 6 }} />
+                    <Text style={{ color: '#FFF', fontWeight: '900', fontSize: 13 }}>Open / Download</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => deleteInboxDoc(d.id)} style={{ backgroundColor: '#FEE2E2', borderRadius: 10, padding: 11 }}>
+                    <Ionicons name="trash-outline" size={16} color={DANGER_RED} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+        </View>
+        </>)}
+
+        {section === 'people' && canSeePrincipalTools && (<>
         {/* ── TOP SCHOLARS (COLLAPSIBLE DROPDOWN) ── */}
         <View style={styles.card}>
           <TouchableOpacity style={styles.rowBetween} onPress={() => setShowTopScholars(!showTopScholars)} activeOpacity={0.7}>
@@ -791,59 +1017,103 @@ export default function PrincipalDashboard() {
           </TouchableOpacity>
         </View>
 
-        {/* ── ASSIGN TEACHER ROLES ── */}
+        {/* ── ASSIGN TEACHER ROLES: collapsible + searchable ── */}
         <View style={styles.card}>
-          <View style={styles.rowBetween}>
-            <View style={{ flex: 1, paddingRight: 10 }}>
-              <Text style={styles.cardTitle}>Assign Teacher Roles</Text>
-              <Text style={{ fontSize: 11, color: '#A0AEC0', marginTop: 2 }}>Form Teachers verify & approve grades. Subject Teachers only submit.</Text>
+          <TouchableOpacity style={styles.rowBetween} onPress={() => setShowStaffRoles(!showStaffRoles)} activeOpacity={0.7}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              <Ionicons name="people" size={20} color="#6B46C1" style={{ marginRight: 10 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>Assign Teacher Roles</Text>
+                <Text style={{ fontSize: 11, color: '#A0AEC0', marginTop: 2 }}>Form Teachers verify &amp; approve · Subject Teachers submit</Text>
+              </View>
             </View>
-            <Ionicons name="people" size={20} color={PRIMARY_NAVY} />
-          </View>
-
-          {staff.length === 0 ? (
-            <Text style={styles.emptyTxt}>No teachers registered yet.</Text>
-          ) : staff.map((t) => (
-            <View key={t.id} style={{ paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <View style={{ flex: 1, marginRight: 8 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '800', color: PRIMARY_NAVY }}>{t.full_name || 'Unnamed Teacher'}</Text>
-                  <Text style={{ fontSize: 11, color: '#A0AEC0', marginTop: 2 }}>
-                    {t.teacher_type === 'class'
-                      ? `🟢 Form Teacher · ${t.assigned_class || '—'}`
-                      : t.teacher_type === 'subject'
-                        ? '🔵 Subject Teacher'
-                        : '⚪ Not assigned yet'}
-                  </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              {staff.length > 0 && (
+                <View style={{ backgroundColor: '#EDE9FE', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, marginRight: 8 }}>
+                  <Text style={{ color: '#6B46C1', fontWeight: '900', fontSize: 11 }}>{staff.length}</Text>
                 </View>
-                <TouchableOpacity
-                  onPress={() => assignTeacherRole(t.id, 'subject', null)}
-                  disabled={assigningId === t.id}
-                  style={{ backgroundColor: t.teacher_type === 'subject' ? '#BEE3F8' : '#EDF2F7', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 }}>
-                  <Text style={{ fontSize: 11, fontWeight: '900', color: SECONDARY_BLUE }}>Subject Teacher</Text>
-                </TouchableOpacity>
+              )}
+              <Ionicons name={showStaffRoles ? 'chevron-up' : 'chevron-down'} size={20} color={PRIMARY_NAVY} />
+            </View>
+          </TouchableOpacity>
+
+          {showStaffRoles && (
+            <View style={{ marginTop: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 12, borderWidth: 1.5, borderColor: '#EDF2F7', paddingHorizontal: 12, marginBottom: 12 }}>
+                <Ionicons name="search" size={16} color="#A0AEC0" />
+                <TextInput
+                  style={{ flex: 1, paddingVertical: 11, paddingHorizontal: 8, fontSize: 14, color: PRIMARY_NAVY }}
+                  placeholder="Search teacher by name..."
+                  placeholderTextColor="#A0AEC0"
+                  value={staffSearch}
+                  onChangeText={setStaffSearch}
+                />
+                {staffSearch.length > 0 && (
+                  <TouchableOpacity onPress={() => setStaffSearch('')}>
+                    <Ionicons name="close-circle" size={18} color="#A0AEC0" />
+                  </TouchableOpacity>
+                )}
               </View>
 
-              <Text style={{ fontSize: 10, color: '#718096', fontWeight: 'bold', marginTop: 10, marginBottom: 6 }}>OR SET AS FORM TEACHER FOR CLASS:</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                {classList.length === 0 ? (
-                  <Text style={{ fontSize: 11, color: '#CBD5E0', fontStyle: 'italic' }}>No classes yet — enroll students first.</Text>
-                ) : classList.map((cls: any) => {
-                  const active = t.teacher_type === 'class' && t.assigned_class === cls;
-                  return (
-                    <TouchableOpacity
-                      key={cls}
-                      onPress={() => assignTeacherRole(t.id, 'class', cls)}
-                      disabled={assigningId === t.id}
-                      style={{ backgroundColor: active ? SUCCESS_GREEN : '#F0FFF4', borderWidth: 1, borderColor: active ? SUCCESS_GREEN : '#C6F6D5', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, marginRight: 6, marginBottom: 6 }}>
-                      <Text style={{ fontSize: 11, fontWeight: '900', color: active ? '#FFF' : '#276749' }}>{cls}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              {assigningId === t.id && <ActivityIndicator size="small" color={PRIMARY_NAVY} style={{ marginTop: 8 }} />}
+              {(() => {
+                const q = staffSearch.trim().toLowerCase();
+                const list = q ? staff.filter((t: any) => (t.full_name || '').toLowerCase().includes(q)) : staff;
+                if (staff.length === 0) return <Text style={styles.emptyTxt}>No teachers registered yet.</Text>;
+                if (list.length === 0) return <Text style={styles.emptyTxt}>No teacher matches "{staffSearch}".</Text>;
+                return (
+                  <ScrollView style={{ maxHeight: 420 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                    {list.map((t: any) => {
+                      const isForm = t.teacher_type === 'class' && !!t.assigned_class;
+                      const isSubject = t.teacher_type === 'subject';
+                      const busy = assigningId === t.id;
+                      return (
+                        <View key={t.id} style={{ borderWidth: 1, borderColor: '#EDF2F7', borderRadius: 14, padding: 12, marginBottom: 10 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <View style={{ flex: 1, marginRight: 8 }}>
+                              <Text style={{ fontSize: 14, fontWeight: '800', color: PRIMARY_NAVY }}>{t.full_name || 'Unnamed Teacher'}</Text>
+                              <View style={{ alignSelf: 'flex-start', marginTop: 4, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: isForm ? '#F0FFF4' : isSubject ? '#EBF8FF' : '#F7FAFC' }}>
+                                <Text style={{ fontSize: 10, fontWeight: '900', color: isForm ? '#276749' : isSubject ? SECONDARY_BLUE : '#A0AEC0' }}>
+                                  {isForm ? `★ FORM TEACHER · ${t.assigned_class}` : isSubject ? 'SUBJECT TEACHER' : 'NOT ASSIGNED'}
+                                </Text>
+                              </View>
+                            </View>
+                            {busy && <ActivityIndicator size="small" color="#6B46C1" />}
+                          </View>
+
+                          <Text style={{ fontSize: 10, color: '#718096', fontWeight: '900', marginTop: 12, marginBottom: 6 }}>SET ROLE:</Text>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <TouchableOpacity
+                              onPress={() => assignTeacherRole(t.id, 'subject', null)}
+                              disabled={busy || isSubject}
+                              style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isSubject ? SECONDARY_BLUE : '#EBF8FF', borderWidth: 1, borderColor: SECONDARY_BLUE, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, marginRight: 6, marginBottom: 6, opacity: busy ? 0.5 : 1 }}>
+                              {isSubject && <Ionicons name="checkmark" size={13} color="#FFF" style={{ marginRight: 4 }} />}
+                              <Text style={{ fontSize: 11, fontWeight: '900', color: isSubject ? '#FFF' : SECONDARY_BLUE }}>Subject</Text>
+                            </TouchableOpacity>
+
+                            {classList.length === 0 ? (
+                              <Text style={{ fontSize: 11, color: '#CBD5E0', fontStyle: 'italic', marginLeft: 4 }}>Form Teacher: enroll students into a class first.</Text>
+                            ) : classList.map((cls: any) => {
+                              const active = isForm && t.assigned_class === cls;
+                              return (
+                                <TouchableOpacity
+                                  key={cls}
+                                  onPress={() => assignTeacherRole(t.id, 'class', cls)}
+                                  disabled={busy || active}
+                                  style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: active ? SUCCESS_GREEN : '#F0FFF4', borderWidth: 1, borderColor: active ? SUCCESS_GREEN : '#C6F6D5', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, marginRight: 6, marginBottom: 6, opacity: busy ? 0.5 : 1 }}>
+                                  {active && <Ionicons name="checkmark" size={13} color="#FFF" style={{ marginRight: 4 }} />}
+                                  <Text style={{ fontSize: 11, fontWeight: '900', color: active ? '#FFF' : '#276749' }}>Form · {cls}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+                );
+              })()}
             </View>
-          ))}
+          )}
         </View>
 
         {/* ── BIO-ROSTER LEDGER: collapsible + searchable ── */}
@@ -918,8 +1188,44 @@ export default function PrincipalDashboard() {
             </View>
           )}
         </View>
+        </>)}
 
       </ScrollView>
+
+      {/* ── SIDE DRAWER ── */}
+      <Modal visible={drawerOpen} animationType="slide" transparent onRequestClose={() => setDrawerOpen(false)}>
+        <View style={{ flex: 1, flexDirection: 'row' }}>
+          <View style={styles.drawerPanel}>
+            <SafeAreaView style={{ flex: 1 }}>
+              <View style={styles.drawerProfile}>
+                <View style={styles.drawerAvatar}><Ionicons name="business" size={28} color="#FFF" /></View>
+                <Text style={styles.drawerName}>{profile?.full_name}</Text>
+                <Text style={styles.drawerRole}>{profile?.role || 'Principal'} • {school?.name}</Text>
+              </View>
+              <ScrollView style={{ flex: 1 }}>
+                {([
+                  { key: 'overview', label: 'Overview', icon: 'grid' },
+                  { key: 'comms', label: 'Comms & Docs', icon: 'megaphone' },
+                  { key: 'people', label: 'People', icon: 'people' },
+                ] as any[]).filter((s: any) => canSeePrincipalTools || s.key !== 'people').map((s: any) => {
+                  const active = section === s.key;
+                  return (
+                    <TouchableOpacity key={s.key} onPress={() => { setSection(s.key); setDrawerOpen(false); }} style={[styles.drawerItem, active && { backgroundColor: '#EBF2FB' }]}>
+                      <Ionicons name={s.icon} size={20} color={active ? PRIMARY_NAVY : '#718096'} style={{ marginRight: 12 }} />
+                      <Text style={[styles.drawerItemTxt, active && { color: PRIMARY_NAVY }]}>{s.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity onPress={handleSecureLogout} style={[styles.drawerItem, { marginTop: 10, borderTopWidth: 1, borderTopColor: '#F1F5F9' }]}>
+                  <Ionicons name="power-outline" size={20} color={DANGER_RED} style={{ marginRight: 12 }} />
+                  <Text style={[styles.drawerItemTxt, { color: DANGER_RED }]}>Logout</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </SafeAreaView>
+          </View>
+          <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }} activeOpacity={1} onPress={() => setDrawerOpen(false)} />
+        </View>
+      </Modal>
 
       {/* FAB MESSENGER */}
       {profile && (
@@ -1121,4 +1427,16 @@ const styles = StyleSheet.create({
   modalHead: { padding: 20, paddingTop: 50 },
   modalTitle: { color: '#FFF', fontSize: 18, fontWeight: '900', marginLeft: 15 },
   emptyTxt: { textAlign: 'center', color: '#CBD5E0', fontSize: 12, marginVertical: 15 },
+  sectionNav: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 20, marginBottom: 16, gap: 8 },
+  sectionTab: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
+  sectionTabActive: { backgroundColor: PRIMARY_NAVY, borderColor: PRIMARY_NAVY },
+  sectionTabTxt: { fontSize: 13, fontWeight: '900', color: PRIMARY_NAVY },
+  menuBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#EDF2F7', alignItems: 'center', justifyContent: 'center' },
+  drawerPanel: { width: 280, backgroundColor: '#FFF' },
+  drawerProfile: { backgroundColor: PRIMARY_NAVY, padding: 20, paddingTop: 40 },
+  drawerAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  drawerName: { color: '#FFF', fontSize: 18, fontWeight: '900' },
+  drawerRole: { color: '#90CDF4', fontSize: 12, marginTop: 2 },
+  drawerItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 20 },
+  drawerItemTxt: { fontSize: 15, fontWeight: '900', color: '#4A5568' },
 });

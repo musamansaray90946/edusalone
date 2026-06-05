@@ -193,6 +193,260 @@ function AcademicSummaryCard({ studentId, themeColor }: { studentId: string; the
   );
 }
 
+function AssignmentsCard({ studentId, schoolId, className, themeColor }: { studentId: string; schoolId: string; className: string; themeColor: string }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<any[]>([]);
+  const [subs, setSubs] = useState<Record<string, any>>({});
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [school, setSchool] = useState<any>(null);
+
+  async function load() {
+    if (!studentId || !schoolId || !className) return;
+    setLoading(true);
+    if (!school) { const { data: sch } = await supabase.from('schools').select('*').eq('id', schoolId).maybeSingle(); if (sch) setSchool(sch); }
+    const { data: asgs } = await supabase.from('assignments')
+      .select('*').eq('school_id', schoolId).eq('class_name', className)
+      .order('created_at', { ascending: false });
+    setItems(asgs || []);
+    if (asgs && asgs.length) {
+      const { data: mySubs } = await supabase.from('assignment_submissions')
+        .select('*').eq('student_id', studentId).in('assignment_id', asgs.map((a: any) => a.id));
+      const map: Record<string, any> = {};
+      (mySubs || []).forEach((s: any) => { map[s.assignment_id] = s; });
+      setSubs(map);
+    } else setSubs({});
+    setLoading(false);
+  }
+
+  useEffect(() => { if (open) load(); }, [open, studentId, className]);
+
+  async function submitAnswer(assignmentId: string) {
+    const text = (drafts[assignmentId] ?? '').trim();
+    if (!text) { Alert.alert('Empty Answer', 'Type your answer before submitting.'); return; }
+    setSavingId(assignmentId);
+    try {
+      const { data, error } = await supabase.from('assignment_submissions')
+        .upsert({ assignment_id: assignmentId, student_id: studentId, school_id: schoolId, answer_text: text, status: 'submitted', submitted_at: new Date().toISOString() }, { onConflict: 'assignment_id,student_id' })
+        .select().single();
+      if (error) throw error;
+      setSubs(prev => ({ ...prev, [assignmentId]: data }));
+      setDrafts(prev => { const n = { ...prev }; delete n[assignmentId]; return n; });
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('✅ Submitted', 'Your answer was sent to your teacher.');
+    } catch (e: any) { Alert.alert('Could not submit', e.message); }
+    setSavingId(null);
+  }
+
+  async function removeSubmission(assignmentId: string, submissionId: string) {
+    const doDelete = async () => {
+      await supabase.from('assignment_submissions').delete().eq('id', submissionId);
+      setSubs(prev => { const n = { ...prev }; delete n[assignmentId]; return n; });
+      setDrafts(prev => { const n = { ...prev }; delete n[assignmentId]; return n; });
+    };
+    if (Platform.OS === 'web') { if (window.confirm('Delete your submission for this assignment?')) doDelete(); return; }
+    Alert.alert('Delete submission?', 'This removes your answer (and any grade).', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => doDelete() },
+    ]);
+  }
+
+  async function downloadPdf(a: any, sub: any) {
+    const marked = sub && (sub.status === 'marked' || sub.score != null || sub.grade);
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c]);
+    let sch: any = school;
+    if (!sch) { const r = await supabase.from('schools').select('*').eq('id', schoolId).maybeSingle(); sch = r.data; if (sch) setSchool(sch); }
+    const sName = (sch?.name || sch?.school_name || sch?.title || 'EduSalone School').toString();
+    const sLogo = (sch?.logo_url || sch?.logo || '').toString();
+    const sAddr = (sch?.address || '').toString();
+    const sPhone = (sch?.phone || sch?.contact || sch?.phone_number || '').toString();
+    const sMotto = (sch?.motto || '').toString();
+    const contact = [sAddr, sPhone].filter(Boolean).map(esc).join(' &bull; ');
+    const head = `<div class="lh">${sLogo ? `<img class="logo" src="${esc(sLogo)}"/>` : ''}<div class="lhmid"><div class="sn">${esc(sName)}</div>${sMotto ? `<div class="mt">${esc(sMotto)}</div>` : ''}${contact ? `<div class="ct">${contact}</div>` : ''}</div></div><div class="rule"></div>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(a.title)}</title>
+      <style>body{font-family:Arial,Helvetica,sans-serif;color:#1A202C;max-width:720px;margin:30px auto;padding:0 20px;}
+      .lh{display:flex;align-items:center;gap:14px;}.logo{width:64px;height:64px;object-fit:contain;border-radius:8px;}
+      .lhmid{flex:1;text-align:center;}.sn{font-size:22px;font-weight:bold;color:#234E52;letter-spacing:.02em;}
+      .mt{font-style:italic;color:#718096;font-size:12px;margin-top:2px;}.ct{color:#718096;font-size:11px;margin-top:3px;}
+      .rule{height:3px;background:#234E52;border-radius:2px;margin:10px 0 18px;}
+      h1{color:#234E52;font-size:20px;margin-bottom:2px;}.meta{color:#718096;font-size:12px;margin-bottom:16px;}
+      .box{border:1px solid #E2E8F0;border-radius:10px;padding:14px;margin-bottom:14px;}
+      .lbl{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#A0AEC0;margin-bottom:4px;}
+      .grade{background:#F0FFF4;border:1px solid #9AE6B4;}.gv{color:#276749;font-weight:bold;}
+      .fb{font-style:italic;color:#2F855A;margin-top:4px;}.foot{margin-top:24px;color:#A0AEC0;font-size:11px;text-align:center;}</style></head>
+      <body>
+        ${head}
+        <h1>${esc(a.title)}</h1>
+        <div class="meta">${esc(className)}${a.subject ? ' &bull; ' + esc(a.subject) : ''}${a.due_date ? ' &bull; Due ' + esc(a.due_date) : ''}</div>
+        <div class="box"><div class="lbl">Instructions / Question</div><div>${esc(a.instructions)}</div></div>
+        <div class="box"><div class="lbl">My Answer</div><div>${esc(sub?.answer_text || '(not submitted)')}</div></div>
+        ${marked ? `<div class="box grade"><div class="lbl">Result</div><div class="gv">${esc(sub.grade || '')}${sub.score != null ? ' (' + esc(sub.score) + ')' : ''}</div>${sub.feedback ? `<div class="fb">&ldquo;${esc(sub.feedback)}&rdquo;</div>` : ''}</div>` : ''}
+        <div class="foot">Generated from EduSalone Student Portal</div>
+      </body></html>`;
+    if (Platform.OS === 'web') {
+      const w = window.open('', '_blank');
+      if (!w) { Alert.alert('Pop-up blocked', 'Allow pop-ups for this site, then tap the PDF button again.'); return; }
+      w.document.write(html); w.document.close(); w.focus();
+      setTimeout(() => { w.print(); }, 400);
+    } else {
+      Alert.alert('Use the web app', 'PDF download is available on the web portal for now.');
+    }
+  }
+
+  const pending = items.filter(a => !subs[a.id]).length;
+
+  return (
+    <View style={{ backgroundColor: '#FFF', borderRadius: 16, marginBottom: 15, borderWidth: 1, borderColor: '#E2E8F0', overflow: 'hidden', elevation: 2 }}>
+      <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: themeColor }} onPress={() => setOpen(!open)}>
+        <Ionicons name="create" size={20} color="#FFF" style={{ marginRight: 10 }} />
+        <Text style={{ color: '#FFF', fontWeight: '900' as any, fontSize: 15, flex: 1 }}>My Assignments</Text>
+        {pending > 0 && (
+          <View style={{ backgroundColor: '#FFF', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginRight: 8 }}>
+            <Text style={{ color: themeColor, fontSize: 11, fontWeight: '900' as any }}>{pending} to do</Text>
+          </View>
+        )}
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color="#FFF" />
+      </TouchableOpacity>
+
+      {open && (
+        loading ? <ActivityIndicator color={themeColor} style={{ padding: 20 }} /> :
+        items.length === 0 ? (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <Ionicons name="document-text-outline" size={40} color="#CBD5E0" />
+            <Text style={{ color: '#A0AEC0', marginTop: 8, fontStyle: 'italic', textAlign: 'center' }}>No assignments yet. Check back when your teacher posts one.</Text>
+          </View>
+        ) : (
+          <View style={{ padding: 12 }}>
+            {items.map((a: any) => {
+              const sub = subs[a.id];
+              const isMarked = sub && (sub.status === 'marked' || sub.score != null || sub.grade);
+              const answerVal = drafts[a.id] !== undefined ? drafts[a.id] : (sub?.answer_text || '');
+              return (
+                <View key={a.id} style={{ backgroundColor: '#F7FAFC', borderRadius: 12, padding: 14, marginBottom: 10, borderLeftWidth: 3, borderLeftColor: isMarked ? '#38A169' : sub ? '#D69E2E' : themeColor }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={{ fontWeight: '900' as any, color: '#1A365D', fontSize: 14, flex: 1 }}>{a.title}</Text>
+                    {sub && (
+                      <TouchableOpacity onPress={() => downloadPdf(a, sub)} style={{ padding: 4, marginRight: 2 }}>
+                        <Ionicons name="download-outline" size={16} color={themeColor} />
+                      </TouchableOpacity>
+                    )}
+                    {sub && (
+                      <TouchableOpacity onPress={() => removeSubmission(a.id, sub.id)} style={{ padding: 4 }}>
+                        <Ionicons name="trash-outline" size={15} color="#E53E3E" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <Text style={{ color: '#718096', fontSize: 11, marginTop: 2 }}>{a.subject ? `${a.subject} • ` : ''}{a.due_date ? `Due ${a.due_date}` : 'No due date'}</Text>
+                  <Text style={{ color: '#4A5568', fontSize: 13, marginTop: 8, lineHeight: 19 }}>{a.instructions}</Text>
+
+                  {isMarked ? (
+                    <View style={{ marginTop: 10, backgroundColor: '#F0FFF4', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#9AE6B4' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="checkmark-circle" size={16} color="#38A169" style={{ marginRight: 6 }} />
+                        <Text style={{ color: '#276749', fontWeight: '900' as any, fontSize: 13 }}>MARKED{sub.grade ? ` — ${sub.grade}` : ''}{sub.score != null ? ` (${sub.score})` : ''}</Text>
+                      </View>
+                      {sub.feedback ? <Text style={{ color: '#2F855A', fontSize: 12, marginTop: 6, fontStyle: 'italic' }}>“{sub.feedback}”</Text> : null}
+                      <Text style={{ color: '#718096', fontSize: 11, marginTop: 8 }}>Your answer:</Text>
+                      <Text style={{ color: '#4A5568', fontSize: 12, marginTop: 2 }}>{sub.answer_text}</Text>
+                    </View>
+                  ) : (
+                    <View style={{ marginTop: 10 }}>
+                      {sub && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                          <Ionicons name="time" size={14} color="#D69E2E" style={{ marginRight: 5 }} />
+                          <Text style={{ color: '#B7791F', fontWeight: '900' as any, fontSize: 12 }}>Submitted — awaiting your teacher. You can still edit.</Text>
+                        </View>
+                      )}
+                      <TextInput
+                        style={{ backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10, padding: 12, fontSize: 13, color: '#2D3748', minHeight: 80, textAlignVertical: 'top' }}
+                        placeholder="Type your answer here..." placeholderTextColor="#A0AEC0" multiline
+                        value={answerVal} onChangeText={t => setDrafts(prev => ({ ...prev, [a.id]: t }))}
+                      />
+                      <TouchableOpacity onPress={() => submitAnswer(a.id)} disabled={savingId === a.id}
+                        style={{ backgroundColor: savingId === a.id ? '#A0AEC0' : themeColor, borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 8, flexDirection: 'row', justifyContent: 'center' }}>
+                        {savingId === a.id ? <ActivityIndicator color="#FFF" /> : <><Ionicons name="send" size={15} color="#FFF" style={{ marginRight: 6 }} /><Text style={{ color: '#FFF', fontWeight: '900' as any, fontSize: 13 }}>{sub ? 'Update Answer' : 'Submit Answer'}</Text></>}
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        )
+      )}
+    </View>
+  );
+}
+
+function OfficeDocsCard({ schoolId, className, themeColor }: { schoolId: string; className: string; themeColor: string }) {
+  const [open, setOpen] = useState(false);
+  const [docs, setDocs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  async function load() {
+    if (!schoolId) return;
+    setLoading(true);
+    const { data } = await supabase.from('school_documents')
+      .select('*').eq('school_id', schoolId)
+      .in('audience', ['all', 'students', 'parents'])
+      .order('created_at', { ascending: false });
+    const filtered = (data || []).filter((d: any) => !d.target_class || d.target_class === className);
+    setDocs(filtered);
+    setLoading(false);
+  }
+
+  useEffect(() => { if (open) load(); }, [open, schoolId, className]);
+
+  function openDoc(url: string) {
+    if (!url) return;
+    if (Platform.OS === 'web') window.open(url, '_blank'); else Linking.openURL(url);
+  }
+
+  return (
+    <View style={{ backgroundColor: '#FFF', borderRadius: 16, marginBottom: 15, borderWidth: 1, borderColor: '#E2E8F0', overflow: 'hidden', elevation: 2 }}>
+      <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: themeColor }} onPress={() => setOpen(!open)}>
+        <Ionicons name="folder-open" size={20} color="#FFF" style={{ marginRight: 10 }} />
+        <Text style={{ color: '#FFF', fontWeight: '900' as any, fontSize: 15, flex: 1 }}>From the Office</Text>
+        {docs.length > 0 && (
+          <View style={{ backgroundColor: '#FFF', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginRight: 8 }}>
+            <Text style={{ color: themeColor, fontSize: 11, fontWeight: '900' as any }}>{docs.length}</Text>
+          </View>
+        )}
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color="#FFF" />
+      </TouchableOpacity>
+      {open && (
+        loading ? <ActivityIndicator color={themeColor} style={{ padding: 20 }} /> :
+        docs.length === 0 ? (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <Ionicons name="file-tray-outline" size={40} color="#CBD5E0" />
+            <Text style={{ color: '#A0AEC0', marginTop: 8, fontStyle: 'italic', textAlign: 'center' }}>No documents from the office yet.</Text>
+          </View>
+        ) : (
+          <View style={{ padding: 12 }}>
+            {docs.map((d: any) => (
+              <View key={d.id} style={{ backgroundColor: '#F7FAFC', borderRadius: 12, padding: 14, marginBottom: 10, borderLeftWidth: 3, borderLeftColor: themeColor }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name={d.file_type === 'image' ? 'image' : d.file_type === 'pdf' ? 'document-text' : 'document'} size={24} color={themeColor} style={{ marginRight: 10 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: '900' as any, color: '#1A365D', fontSize: 14 }}>{d.title}</Text>
+                    <Text style={{ color: '#718096', fontSize: 11, marginTop: 2 }}>{d.sender_name || 'Office'}{d.sender_role ? ` (${d.sender_role})` : ''} · {new Date(d.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</Text>
+                  </View>
+                </View>
+                {d.note ? <Text style={{ color: '#4A5568', fontSize: 13, marginTop: 8, lineHeight: 19 }}>{d.note}</Text> : null}
+                <TouchableOpacity onPress={() => openDoc(d.file_url)} style={{ backgroundColor: themeColor, borderRadius: 10, padding: 11, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', marginTop: 10 }}>
+                  <Ionicons name="download-outline" size={15} color="#FFF" style={{ marginRight: 6 }} />
+                  <Text style={{ color: '#FFF', fontWeight: '900' as any, fontSize: 13 }}>Open / Download</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )
+      )}
+    </View>
+  );
+}
+
 export default function StudentDashboard() {
   const router = useRouter();
   
@@ -970,6 +1224,12 @@ async function downloadMyReportCard() {
 
                    {/* 📊 MY GRADES SUMMARY */}
                    <AcademicSummaryCard studentId={studentRecord?.id} themeColor={themeColor} />
+
+                   {/* 📝 MY ASSIGNMENTS */}
+                   <AssignmentsCard studentId={studentRecord?.id} schoolId={studentRecord?.school_id} className={studentRecord?.current_class} themeColor={themeColor} />
+
+                   {/* 📥 FROM THE OFFICE */}
+                   <OfficeDocsCard schoolId={studentRecord?.school_id} className={studentRecord?.current_class} themeColor={themeColor} />
 
                    <Text style={[styles.sectionTitle, { marginTop: 10, color: themeColor }]}>Class Timetable</Text>
                    <View style={styles.timetableContainer}>
