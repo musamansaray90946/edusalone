@@ -18,6 +18,9 @@ export async function registerForPush(userId: string) {
   try {
     if (!Device.isDevice) return; // real devices only
 
+    // 🔢 Clear the app-icon badge whenever the app opens / a dashboard mounts
+    await Notifications.setBadgeCountAsync(0);
+
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'Default',
