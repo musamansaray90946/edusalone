@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AskAI from '../../components/AskAI';
+import { registerForPush } from '../../src/lib/registerPush';
 import { supabase } from '../../src/lib/supabase';
 import ChatTab from './chat';
 
@@ -179,6 +180,7 @@ export default function PrincipalDashboard() {
 
       setProfile(profileData);
       setSchool(profileData.schools);
+      registerForPush(profileData.id);
 
       const { data: rosterData } = await supabase
         .from('students')
