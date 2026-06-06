@@ -71,7 +71,7 @@ function AudioMessagePlayer({ url, mine }: { url: string, mine: boolean }) {
   );
 }
 
-function ContactsList({ me, contacts, lastMsgs, onOpen, onRefresh }: any) {
+function ContactsList({ me, contacts, lastMsgs, onOpen, onRefresh, onClose }: any) {
   const [q, setQ] = useState('');
   const sorted = [...contacts].filter(c => (c.full_name?.toLowerCase() || '').includes(q.toLowerCase()) || (c.role?.toLowerCase() || '').includes(q.toLowerCase())).sort((a, b) => {
       const ta = lastMsgs[a.id]?.created_at || ''; const tb = lastMsgs[b.id]?.created_at || '';
@@ -81,7 +81,14 @@ function ContactsList({ me, contacts, lastMsgs, onOpen, onRefresh }: any) {
   return (
       <View style={{ flex: 1, backgroundColor: P.listBg }}>
           <View style={[cl.hdr, { paddingTop: Platform.OS === 'android' ? 44 : 54 }]}>
-              <Text style={cl.hdrTitle}>EduChat</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  {onClose && (
+                      <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={{ marginRight: 12 }}>
+                          <Ionicons name="chevron-down" size={26} color="#fff" />
+                      </TouchableOpacity>
+                  )}
+                  <Text style={cl.hdrTitle}>EduChat</Text>
+              </View>
               <View style={{ flexDirection: 'row', gap: 18 }}>
                   <TouchableOpacity onPress={() => Alert.alert('Secured', 'All messages are E2E encrypted.')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                       <Ionicons name="shield-checkmark" size={22} color="#fff" />
@@ -130,27 +137,39 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
   const [imgZoom, setImgZoom] = useState(1);
   const flatRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
-  
+
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [forwardingMsg, setForwardingMsg] = useState<Message | null>(null);
+  const [kbHeight, setKbHeight] = useState(0);
 
   useEffect(() => {
       fetchMsgs(); markRead();
-      const channel = supabase.channel(`chat_${[me.id, contact.id].sort().join('_')}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+      // ✅ FIX: unique channel name per open + split .on()/.subscribe() so we never
+      // add listeners to an already-subscribed channel (the "callbacks after subscribe" Render Error).
+      const channel = supabase.channel(`chat_${[me.id, contact.id].sort().join('_')}_${Date.now()}`);
+      channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
           const m = payload.new as Message;
-          if(m.school_id !== me.school_id) return;
+          if (m.school_id !== me.school_id) return;
           const relevant = (m.sender_id === me.id && m.receiver_id === contact.id) || (m.sender_id === contact.id && m.receiver_id === me.id);
           if (!relevant) return;
-          setMsgs(prev => { 
-  if (prev.find(p => p.id === m.id)) return prev;
-  if (m.sender_id === me.id) return prev;
-  return [m, ...prev]; 
-});
+          setMsgs(prev => {
+              if (prev.find(p => p.id === m.id)) return prev;
+              if (m.sender_id === me.id) return prev;
+              return [m, ...prev];
+          });
           if (m.sender_id === contact.id) markRead();
-      }).subscribe();
+      });
+      channel.subscribe();
       return () => { supabase.removeChannel(channel); };
   }, [contact.id]);
+
+  // ⌨️ Track keyboard height so the input bar lifts above it (reliable inside Modals on Android)
+  useEffect(() => {
+      const showSub = Keyboard.addListener('keyboardDidShow', e => setKbHeight(e.endCoordinates.height));
+      const hideSub = Keyboard.addListener('keyboardDidHide', () => setKbHeight(0));
+      return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
   const fetchMsgs = useCallback(async () => {
       setLoading(true);
@@ -189,7 +208,7 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
           }
       } catch (err: any) { Alert.alert('Mic Error', err.message || 'Could not access microphone.'); }
   };
-  
+
   const stopRecordingAndSend = async () => {
       if (!recording) return;
       setIsRecording(false);
@@ -209,9 +228,9 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
       Keyboard.dismiss(); setShowEmoji(false); setText(''); setSending(true);
       const targetId = overrideReceiverId || contact.id;
       const opt: Message = { id: `opt_${Date.now()}`, school_id: me.school_id, sender_id: me.id, receiver_id: targetId, content: body, is_read: false, created_at: new Date().toISOString(), _opt: true };
-      
+
       if (!overrideReceiverId) setMsgs(prev => [opt, ...prev]);
-      
+
       const { data, error } = await supabase.from('messages').insert({ school_id: me.school_id, sender_id: me.id, receiver_id: targetId, sender_name: me.full_name, sender_role: me.role, content: body, is_read: false }).select().single();
       if (error) {
           if (!overrideReceiverId) { setMsgs(prev => prev.filter(m => m.id !== opt.id)); setText(isImageMsg(body) || isAudioMsg(body) ? "" : body); }
@@ -260,10 +279,11 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
 
   const isMine = (m: Message) => m.sender_id === me?.id;
 
-  // 🛡️ KEYBOARD FIX: Automatically adjusts layout for Android and iOS safely!
+  // 🛡️ KEYBOARD FIX: behavior is undefined on Android — we lift the input bar ourselves
+  // via the keyboard listener above (works inside Modals where auto-resize does not).
   return (
-      <KeyboardAvoidingView 
-          style={{ flex: 1, backgroundColor: P.chatBg }} 
+      <KeyboardAvoidingView
+          style={{ flex: 1, backgroundColor: P.chatBg }}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
           <Modal visible={!!fullScreenImage} transparent={true} animationType="fade">
@@ -300,14 +320,14 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
                   </View>
               </View>
           </Modal>
-          
+
           <View style={[cc.hdr, { paddingTop: Platform.OS === 'android' ? 42 : 52 }]}>
               <TouchableOpacity onPress={onBack} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} style={{ marginRight: 4 }}><Ionicons name="arrow-back" size={24} color="#fff" /></TouchableOpacity>
               <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }} onPress={() => Alert.alert(contact.full_name, `Role: ${contact.role}`)}><Avatar name={contact.full_name} size={40} /><View style={{ marginLeft: 10, flex: 1 }}><Text style={cc.hdrName} numberOfLines={1}>{contact.full_name}</Text><Text style={[cc.hdrRole, { color: roleClr(contact.role) + 'DD' }]}>{contact.role}</Text></View></TouchableOpacity>
               <TouchableOpacity style={cc.hdrBtn} onPress={handlePhoneCall}><Ionicons name="call-outline" size={21} color="#fff" /></TouchableOpacity>
               <TouchableOpacity style={cc.hdrBtn} onPress={clearChat}><Ionicons name="ellipsis-vertical" size={21} color="#fff" /></TouchableOpacity>
           </View>
-          
+
           <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setShowEmoji(false); }}>
               <View style={{ flex: 1 }}>
                   {loading ? <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={P.headerBg} /></View> : (
@@ -338,22 +358,25 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
                   )}
               </View>
           </TouchableWithoutFeedback>
-          
+
           {showEmoji && <View style={cc.emojiPanel}><ScrollView showsVerticalScrollIndicator={false}><View style={{ flexDirection: 'row', flexWrap: 'wrap', padding: 8, justifyContent: 'center' }}>{EMOJIS.map((em, i) => <TouchableOpacity key={i} style={cc.emojiBtn} onPress={() => setText(prev => prev + em)}><Text style={{ fontSize: 26 }}>{em}</Text></TouchableOpacity>)}</View></ScrollView></View>}
-          
-          <View style={[cc.inputBar, { paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 8) : 8 }]}>
+
+          <View style={[cc.inputBar, {
+              marginBottom: Platform.OS === 'android' ? kbHeight : 0,
+              paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 8) : (kbHeight > 0 ? 8 : 24),
+          }]}>
               <View style={cc.inputWrap}>
                   <TouchableOpacity style={{ paddingHorizontal: 8 }} onPress={() => { if (showEmoji) { setShowEmoji(false); setTimeout(() => inputRef.current?.focus(), 100); } else { Keyboard.dismiss(); setShowEmoji(true); } }}><Ionicons name={showEmoji ? 'keypad-outline' : 'happy-outline'} size={24} color={showEmoji ? P.headerBg : P.timeColor} /></TouchableOpacity>
                   <TextInput ref={inputRef} style={cc.input} placeholder="Message" placeholderTextColor={P.timeColor} value={text} onChangeText={setText} multiline maxLength={4000} onFocus={() => { setShowEmoji(false); }} />
                   <TouchableOpacity style={{ paddingHorizontal: 8 }} onPress={() => handleAttachImage(false)}><Ionicons name="attach" size={24} color={P.timeColor} /></TouchableOpacity>
                   {text.trim().length === 0 && <TouchableOpacity style={{ paddingRight: 6 }} onPress={() => handleAttachImage(true)}><Ionicons name="camera-outline" size={24} color={P.timeColor} /></TouchableOpacity>}
               </View>
-              
-              <TouchableOpacity 
-                  style={[cc.sendBtn, { backgroundColor: text.trim().length > 0 ? P.headerBg : (isRecording ? '#E53E3E' : P.accent) }]} 
-                  onPress={() => { if (text.trim().length > 0) sendMsg(); }} 
-                  onPressIn={() => { if (text.trim().length === 0) startRecording(); }} 
-                  onPressOut={() => { if (isRecording) stopRecordingAndSend(); }} 
+
+              <TouchableOpacity
+                  style={[cc.sendBtn, { backgroundColor: text.trim().length > 0 ? P.headerBg : (isRecording ? '#E53E3E' : P.accent) }]}
+                  onPress={() => { if (text.trim().length > 0) sendMsg(); }}
+                  onPressIn={() => { if (text.trim().length === 0) startRecording(); }}
+                  onPressOut={() => { if (isRecording) stopRecordingAndSend(); }}
                   activeOpacity={0.8} disabled={sending}
               >
                   {sending ? <ActivityIndicator size="small" color="#FFF" /> : <Ionicons name={text.trim().length > 0 ? 'send' : 'mic'} size={20} color="#fff" style={text.trim().length > 0 ? { marginLeft: 2 } : undefined} />}
@@ -363,7 +386,7 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
   );
 }
 
-export default function ChatTab() {
+export default function ChatTab({ onClose }: { onClose?: () => void }) {
   const [me, setMe] = useState<UserProfile | null>(null);
   const [contacts, setContacts] = useState<UserProfile[]>([]);
   const [lastMsgs, setLastMsgs] = useState<Record<string, Message>>({});
@@ -411,7 +434,7 @@ export default function ChatTab() {
 
   if (booting) return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: P.listBg }}><ActivityIndicator size="large" color={P.headerBg} /></View>;
   if (active && me) return <ChatConvo me={me} contact={active} contacts={contacts} onBack={closeChat} onRefreshList={refresh} />;
-  if (me) return <ContactsList me={me} contacts={contacts} lastMsgs={lastMsgs} onOpen={setActive} onRefresh={refresh} />;
+  if (me) return <ContactsList me={me} contacts={contacts} lastMsgs={lastMsgs} onOpen={setActive} onRefresh={refresh} onClose={onClose} />;
   return null;
 }
 

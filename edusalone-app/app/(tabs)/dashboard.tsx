@@ -1257,16 +1257,10 @@ export default function PrincipalDashboard() {
         </SafeAreaView>
       </Modal>
 
-      {/* MESSENGER MODAL */}
-      <Modal visible={isMessengerOpen} animationType="slide">
+      {/* MESSENGER MODAL — float chat, single clean header */}
+      <Modal visible={isMessengerOpen} animationType="slide" onRequestClose={() => setIsMessengerOpen(false)}>
         <View style={{ flex: 1 }}>
-          <View style={[styles.modalHead, { backgroundColor: PRIMARY_NAVY }]}>
-            <TouchableOpacity onPress={() => setIsMessengerOpen(false)} style={styles.row}>
-              <Ionicons name="chevron-down" size={32} color="#FFF" />
-              <Text style={styles.modalTitle}>Institutional Messenger</Text>
-            </TouchableOpacity>
-          </View>
-          <ChatTab />
+          <ChatTab onClose={() => setIsMessengerOpen(false)} />
         </View>
       </Modal>
 
