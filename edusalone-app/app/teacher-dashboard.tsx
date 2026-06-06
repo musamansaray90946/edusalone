@@ -9,7 +9,7 @@ import { useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, Image, Keyboard,
+  ActivityIndicator, Alert, Dimensions, FlatList, Image, Keyboard,
   KeyboardAvoidingView, Linking, Modal, Platform, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity,
   TouchableWithoutFeedback, View,
@@ -159,6 +159,7 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
   const [loading, setLoading] = useState(true);
   const [showEmoji, setShowEmoji] = useState(false);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+  const [imageZoom, setImageZoom] = useState(1);
   const flatRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -204,31 +205,38 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
   };
 
   const startRecording = async () => {
+    if (Platform.OS === 'web') {
+      Alert.alert('Voice Notes', 'Voice recording works in the EduSalone mobile app. Please use your phone to send voice notes.');
+      return;
+    }
     try {
       if (recording) { try { await recording.stopAndUnloadAsync(); } catch {} setRecording(null); }
-      if (recording) { try { await recording.stopAndUnloadAsync(); } catch {} setRecording(null); }
       const perm = await Audio.requestPermissionsAsync();
-      if (perm.status === 'granted') {
-        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-        const { recording: rec } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-        setRecording(rec); setIsRecording(true);
-        if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      } else Alert.alert('Permission Denied', 'Please enable microphone access in settings.');
-    } catch (err: any) { Alert.alert('Mic Error', err.message || 'Could not access microphone.'); }
+      if (perm.status !== 'granted') { Alert.alert('Permission Denied', 'Please enable microphone access in settings.'); return; }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording: rec } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      setRecording(rec); setIsRecording(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    } catch (err: any) {
+      setIsRecording(false); setRecording(null);
+      Alert.alert('Mic Error', err.message || 'Could not access microphone.');
+    }
   };
 
   const stopRecordingAndSend = async () => {
-    if (!recording) return;
+    if (!recording) { setIsRecording(false); return; }
     setIsRecording(false);
     try {
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI(); setRecording(null);
+      // Reset audio mode so playback is at full volume afterwards
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
       if (uri) {
         setSending(true);
         const b64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
         await sendMsg(`${AUDIO_PREFIX}data:audio/m4a;base64,${b64}`);
       }
-    } catch { setIsRecording(false); setSending(false); }
+    } catch { setIsRecording(false); setSending(false); setRecording(null); }
   };
 
   const sendMsg = async (body = text.trim()) => {
@@ -265,14 +273,44 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: P.chatBg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Modal visible={!!fullScreenImage} transparent animationType="fade">
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center' }}>
-          <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 }} onPress={() => setFullScreenImage(null)}>
+      <Modal visible={!!fullScreenImage} transparent animationType="fade" onRequestClose={() => { setFullScreenImage(null); setImageZoom(1); }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.96)' }}>
+          <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20, zIndex: 20, padding: 10 }} onPress={() => { setFullScreenImage(null); setImageZoom(1); }}>
             <Ionicons name="close-circle" size={40} color="#FFF" />
           </TouchableOpacity>
-          <ScrollView maximumZoomScale={3} minimumZoomScale={1} centerContent contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}>
-            {fullScreenImage && <Image source={{ uri: fullScreenImage }} style={{ width: '100%' as any, height: '100%' as any }} resizeMode="contain" />}
+
+          <ScrollView
+            style={{ flex: 1 }}
+            horizontal
+            bounces={false}
+            maximumZoomScale={4}
+            minimumZoomScale={1}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ flexGrow: 1 }}>
+            <ScrollView
+              bounces={false}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center' }}>
+              {fullScreenImage && (
+                <Image
+                  source={{ uri: fullScreenImage }}
+                  style={{ width: Dimensions.get('window').width * imageZoom, height: Dimensions.get('window').height * 0.8 * imageZoom }}
+                  resizeMode="contain" />
+              )}
+            </ScrollView>
           </ScrollView>
+
+          <View style={{ position: 'absolute', bottom: 40, alignSelf: 'center', flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 32, padding: 6 }}>
+            <TouchableOpacity onPress={() => setImageZoom(z => Math.max(1, +(z - 0.5).toFixed(1)))} style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#2D3748', alignItems: 'center', justifyContent: 'center', marginHorizontal: 6 }}>
+              <Ionicons name="remove" size={26} color="#FFF" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setImageZoom(1)} style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#2D3748', alignItems: 'center', justifyContent: 'center', marginHorizontal: 6 }}>
+              <Ionicons name="refresh" size={22} color="#FFF" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setImageZoom(z => Math.min(4, +(z + 0.5).toFixed(1)))} style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#2D3748', alignItems: 'center', justifyContent: 'center', marginHorizontal: 6 }}>
+              <Ionicons name="add" size={26} color="#FFF" />
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
 
@@ -304,7 +342,7 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
                         <View style={[cc.bubble, mine ? cc.bubbleSent : cc.bubbleRecv, item._opt && { opacity: 0.65 }]}>
                           <View style={mine ? cc.tailRight : cc.tailLeft} />
                           {isImageMsg(item.content)
-                            ? <TouchableOpacity onPress={() => setFullScreenImage(getImageUrl(item.content))} activeOpacity={0.8}><Image source={{ uri: getImageUrl(item.content) }} style={{ width: 220, height: 220, borderRadius: 8, marginVertical: 4 }} resizeMode="cover" /></TouchableOpacity>
+                            ? <TouchableOpacity onPress={() => { setFullScreenImage(getImageUrl(item.content)); setImageZoom(1); }} activeOpacity={0.8}><Image source={{ uri: getImageUrl(item.content) }} style={{ width: 220, height: 220, borderRadius: 8, marginVertical: 4 }} resizeMode="cover" /></TouchableOpacity>
                             : isAudioMsg(item.content)
                               ? <AudioMessagePlayer url={getAudioUrl(item.content)} mine={mine} />
                               : <Text style={cc.msgTxt} selectable>{item.content}</Text>}
@@ -327,16 +365,6 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
         </View>
       </TouchableWithoutFeedback>
 
-      {showEmoji && (
-        <View style={cc.emojiPanel}>
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', padding: 8, justifyContent: 'center' }}>
-              {EMOJIS.map((em, i) => <TouchableOpacity key={i} style={cc.emojiBtn} onPress={() => setText(prev => prev + em)}><Text style={{ fontSize: 26 }}>{em}</Text></TouchableOpacity>)}
-            </View>
-          </ScrollView>
-        </View>
-      )}
-
       <View style={cc.inputBar}>
         <View style={cc.inputWrap}>
           <TouchableOpacity style={{ paddingHorizontal: 8 }} onPress={() => { if (showEmoji) { setShowEmoji(false); setTimeout(() => inputRef.current?.focus(), 100); } else { Keyboard.dismiss(); setShowEmoji(true); } }}>
@@ -355,6 +383,16 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
           {sending ? <ActivityIndicator size="small" color="#FFF" /> : <Ionicons name={text.trim().length > 0 ? 'send' : 'mic'} size={20} color="#fff" style={text.trim().length > 0 ? { marginLeft: 2 } : undefined} />}
         </TouchableOpacity>
       </View>
+
+      {showEmoji && (
+        <View style={cc.emojiPanel}>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', padding: 8, justifyContent: 'center' }}>
+              {EMOJIS.map((em, i) => <TouchableOpacity key={i} style={cc.emojiBtn} onPress={() => setText(prev => prev + em)}><Text style={{ fontSize: 26 }}>{em}</Text></TouchableOpacity>)}
+            </View>
+          </ScrollView>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
