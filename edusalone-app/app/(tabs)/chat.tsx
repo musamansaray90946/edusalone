@@ -343,7 +343,7 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
                                           <View style={[cc.bubble, mine ? cc.bubbleSent : cc.bubbleRecv, item._opt && { opacity: 0.65 }]}>
                                               <View style={mine ? cc.tailRight : cc.tailLeft} />
                                               {isImageMsg(item.content) ? (
-                                                  <TouchableOpacity onPress={() => { setFullScreenImage(getImageUrl(item.content)); setImgZoom(1); }} activeOpacity={0.8}><Image source={{ uri: getImageUrl(item.content) }} style={{ width: 220, height: 220, borderRadius: 8, marginVertical: 4 }} resizeMode="cover" /></TouchableOpacity>
+                                                  <TouchableOpacity onPress={() => { setFullScreenImage(getImageUrl(item.content)); setImgZoom(1); }} onLongPress={() => handleMessageLongPress(item)} activeOpacity={0.8}><Image source={{ uri: getImageUrl(item.content) }} style={{ width: 220, height: 220, borderRadius: 8, marginVertical: 4 }} resizeMode="cover" /></TouchableOpacity>
                                               ) : isAudioMsg(item.content) ? (
                                                   <AudioMessagePlayer url={getAudioUrl(item.content)} mine={mine} />
                                               ) : <Text style={cc.msgTxt} selectable>{item.content}</Text>}
@@ -361,10 +361,7 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
 
           {showEmoji && <View style={cc.emojiPanel}><ScrollView showsVerticalScrollIndicator={false}><View style={{ flexDirection: 'row', flexWrap: 'wrap', padding: 8, justifyContent: 'center' }}>{EMOJIS.map((em, i) => <TouchableOpacity key={i} style={cc.emojiBtn} onPress={() => setText(prev => prev + em)}><Text style={{ fontSize: 26 }}>{em}</Text></TouchableOpacity>)}</View></ScrollView></View>}
 
-          <View style={[cc.inputBar, {
-              marginBottom: Platform.OS === 'android' ? kbHeight : 0,
-              paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 8) : (kbHeight > 0 ? 8 : 24),
-          }]}>
+          <View style={[cc.inputBar, { marginBottom: Platform.OS === 'android' ? kbHeight : 0 }]}>
               <View style={cc.inputWrap}>
                   <TouchableOpacity style={{ paddingHorizontal: 8 }} onPress={() => { if (showEmoji) { setShowEmoji(false); setTimeout(() => inputRef.current?.focus(), 100); } else { Keyboard.dismiss(); setShowEmoji(true); } }}><Ionicons name={showEmoji ? 'keypad-outline' : 'happy-outline'} size={24} color={showEmoji ? P.headerBg : P.timeColor} /></TouchableOpacity>
                   <TextInput ref={inputRef} style={cc.input} placeholder="Message" placeholderTextColor={P.timeColor} value={text} onChangeText={setText} multiline maxLength={4000} onFocus={() => { setShowEmoji(false); }} />
@@ -472,7 +469,7 @@ const cc = StyleSheet.create({
   encryptTxt: { color: '#555', textAlign: 'center', fontSize: 14, lineHeight: 22 },
   emojiPanel: { height: 180, backgroundColor: '#F8F9FA', borderTopWidth: 1, borderTopColor: P.border },
   emojiBtn: { width: '14%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center', marginVertical: 5 },
-  inputBar: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 8, paddingTop: 8, backgroundColor: P.barBg, gap: 8, borderTopWidth: 0.5, borderTopColor: '#ddd' },
+  inputBar: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 8, paddingVertical: 8, backgroundColor: P.barBg, gap: 8, borderTopWidth: 0.5, borderTopColor: '#ddd' },
   inputWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: P.inputBg, borderRadius: 26, paddingHorizontal: 4, paddingVertical: Platform.OS === 'ios' ? 10 : 5, minHeight: 48, maxHeight: 130, elevation: 2 },
   input: { flex: 1, fontSize: 15, color: '#111B21', paddingHorizontal: 4, maxHeight: 120, lineHeight: 20 },
   sendBtn: { width: 50, height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center', elevation: 3 },

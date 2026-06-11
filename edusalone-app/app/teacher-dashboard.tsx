@@ -164,10 +164,11 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
   const inputRef = useRef<TextInput>(null);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [kbHeight, setKbHeight] = useState(0);
 
   useEffect(() => {
     fetchMsgs(); markRead();
-    const channel = supabase.channel(`chat_${[me.id, contact.id].sort().join('_')}`)
+    const channel = supabase.channel(`chat_${[me.id, contact.id].sort().join('_')}_${Date.now()}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
         const m = payload.new as Message;
         if (m.school_id !== me.school_id) return;
@@ -178,6 +179,13 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
       }).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [contact.id]);
+
+  // ⌨️ Lift the input bar above the Android keyboard (works inside the Modal)
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', e => setKbHeight(e.endCoordinates.height));
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKbHeight(0));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
   const fetchMsgs = useCallback(async () => {
     setLoading(true);
@@ -342,7 +350,7 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
                         <View style={[cc.bubble, mine ? cc.bubbleSent : cc.bubbleRecv, item._opt && { opacity: 0.65 }]}>
                           <View style={mine ? cc.tailRight : cc.tailLeft} />
                           {isImageMsg(item.content)
-                            ? <TouchableOpacity onPress={() => { setFullScreenImage(getImageUrl(item.content)); setImageZoom(1); }} activeOpacity={0.8}><Image source={{ uri: getImageUrl(item.content) }} style={{ width: 220, height: 220, borderRadius: 8, marginVertical: 4 }} resizeMode="cover" /></TouchableOpacity>
+                            ? <TouchableOpacity onPress={() => { setFullScreenImage(getImageUrl(item.content)); setImageZoom(1); }} onLongPress={() => handleMessageLongPress(item)} activeOpacity={0.8}><Image source={{ uri: getImageUrl(item.content) }} style={{ width: 220, height: 220, borderRadius: 8, marginVertical: 4 }} resizeMode="cover" /></TouchableOpacity>
                             : isAudioMsg(item.content)
                               ? <AudioMessagePlayer url={getAudioUrl(item.content)} mine={mine} />
                               : <Text style={cc.msgTxt} selectable>{item.content}</Text>}
@@ -365,7 +373,7 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
         </View>
       </TouchableWithoutFeedback>
 
-      <View style={cc.inputBar}>
+      <View style={[cc.inputBar, { marginBottom: Platform.OS === 'android' ? kbHeight : 0 }]}>
         <View style={cc.inputWrap}>
           <TouchableOpacity style={{ paddingHorizontal: 8 }} onPress={() => { if (showEmoji) { setShowEmoji(false); setTimeout(() => inputRef.current?.focus(), 100); } else { Keyboard.dismiss(); setShowEmoji(true); } }}>
             <Ionicons name={showEmoji ? 'keypad-outline' : 'happy-outline'} size={24} color={showEmoji ? P.headerBg : P.timeColor} />
