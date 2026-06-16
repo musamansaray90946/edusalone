@@ -57,12 +57,19 @@ export default function LoginScreen() {
       const userEmail = authData.user.email || '';
       const { data: profile, error: profileError } = await supabase
         .from('users')
-        .select('role')
+        .select('role, active')
         .ilike('email', userEmail)
         .single();
 
       if (profileError || !profile) {
         Alert.alert('Access Restricted', 'Your account is authenticated but not mapped to a verified role.');
+        await supabase.auth.signOut();
+        setLoading(false);
+        return;
+      }
+
+      if (profile.active === false) {
+        Alert.alert('Account Deactivated', 'Your account has been deactivated by your school. Please contact your school administrator for help.');
         await supabase.auth.signOut();
         setLoading(false);
         return;
