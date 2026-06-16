@@ -33,6 +33,7 @@ export default function StudentsScreen() {
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [publishingClass, setPublishingClass] = useState<string | null>(null); // State for the Publish button
   const [printingRoster, setPrintingRoster] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkText, setBulkText] = useState('');
@@ -46,8 +47,9 @@ export default function StudentsScreen() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: profile } = await supabase.from('users').select('school_id').eq('email', user.email).single();
+      const { data: profile } = await supabase.from('users').select('id, school_id').eq('email', user.email).single();
       if (profile && profile.school_id) {
+        setCurrentUserId(profile.id);
         const { data: schoolData } = await supabase.from('schools').select('*').eq('id', profile.school_id).single();
         if (schoolData) setSchool(schoolData);
       }
@@ -111,12 +113,41 @@ export default function StudentsScreen() {
     fetchStudents();
   }
 
-  async function deleteStudent(userId: string) {
-    try {
-      const { error } = await supabase.from('users').delete().eq('id', userId);
-      if (error) throw error;
-      fetchStudents();
-    } catch (err: any) { Alert.alert('Delete Error', err.message); }
+  async function toggleStudentActive(item: any) {
+    const isActive = item.users?.active !== false;
+    const name = item.users?.full_name || 'this student';
+    const verb = isActive ? 'Deactivate' : 'Reactivate';
+
+    const applyChange = async () => {
+      try {
+        const updates = isActive
+          ? { active: false, deactivated_at: new Date().toISOString(), deactivated_by: currentUserId, deactivation_reason: 'Removed by admin' }
+          : { active: true, deactivated_at: null, deactivated_by: null, deactivation_reason: null };
+
+        const { error } = await supabase.from('users').update(updates).eq('id', item.user_id);
+        if (error) throw error;
+        fetchStudents();
+      } catch (err: any) {
+        Alert.alert('Update Error', err.message);
+      }
+    };
+
+    const message = isActive
+      ? `${name} will no longer be able to log in. Their records and report cards stay safe, and you can reactivate them anytime.`
+      : `${name} will be able to log in and use the app again.`;
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(`${verb} ${name}?\n\n${message}`)) applyChange();
+    } else {
+      Alert.alert(
+        `${verb} student?`,
+        message,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: `Yes, ${verb}`, style: isActive ? 'destructive' : 'default', onPress: applyChange },
+        ]
+      );
+    }
   }
 // 📚 PUBLISH BY CLASS LOGIC
   async function publishByClass(className: string, publish: boolean) {
@@ -438,10 +469,19 @@ async function generatePDFReportCard(student: any) {
             {fetching && <ActivityIndicator size="large" color="#3182CE" style={{ marginTop: 20 }} />}
           </View>
         }
-        renderItem={({ item }) => (
-          <View style={styles.studentItem}>
+        renderItem={({ item }) => {
+          const isActive = item.users?.active !== false;
+          return (
+          <View style={[styles.studentItem, !isActive && styles.studentItemInactive]}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.studentName}>{item.users?.full_name || 'Unknown Name'}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                <Text style={styles.studentName}>{item.users?.full_name || 'Unknown Name'}</Text>
+                {!isActive && (
+                  <View style={styles.inactiveBadge}>
+                    <Text style={styles.inactiveBadgeText}>DEACTIVATED</Text>
+                  </View>
+                )}
+              </View>
               <Text style={styles.studentDetails}>{item.current_class} | {item.admission_number}</Text>
             </View>
 
@@ -458,14 +498,12 @@ async function generatePDFReportCard(student: any) {
               {printingId === item.id ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.printButtonText}>PDF</Text>}
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => {
-              if (Platform.OS === 'web') { if (window.confirm(`Delete Student?\n\nRemove ${item.users?.full_name}?`)) deleteStudent(item.user_id); return; }
-              Alert.alert('Delete Student?', `Remove ${item.users?.full_name}?`,[{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => deleteStudent(item.user_id) }]);
-            }} style={styles.deleteButton}>
-              <Ionicons name="trash-outline" size={22} color="#E53E3E" />
+            <TouchableOpacity onPress={() => toggleStudentActive(item)} style={styles.deleteButton}>
+              <Ionicons name={isActive ? 'ban-outline' : 'refresh-outline'} size={22} color={isActive ? '#E53E3E' : '#38A169'} />
             </TouchableOpacity>
           </View>
-        )}
+          );
+        }}
         ListEmptyComponent={!fetching ? <Text style={styles.emptyText}>No students in this school yet.</Text> : null}
       />
     </KeyboardAvoidingView>
@@ -500,6 +538,9 @@ const styles = StyleSheet.create({
   printButton: { backgroundColor: '#DD6B20', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 6, marginRight: 5, justifyContent: 'center', alignItems: 'center' },
   printButtonText: { color: '#FFF', fontWeight: '900', fontSize: 10, textTransform: 'uppercase' },
   deleteButton: { padding: 5 },
+  studentItemInactive: { opacity: 0.55 },
+  inactiveBadge: { backgroundColor: '#FFF5F5', borderWidth: 1, borderColor: '#FEB2B2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginLeft: 8 },
+  inactiveBadgeText: { color: '#C53030', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
   classPublishRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', padding: 14, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: '#E2E8F0', elevation: 1 },
   classPublishName: { fontSize: 14, fontWeight: '900', color: '#1A365D' },
   classPublishSub: { fontSize: 11, color: '#718096', marginTop: 2 },
