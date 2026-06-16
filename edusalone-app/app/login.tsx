@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -183,8 +184,11 @@ export default function LoginScreen() {
           {/* TRUST FOOTER */}
           <View style={styles.trustBanner}>
             <Ionicons name="lock-closed" size={12} color="#A0AEC0" />
-            <Text style={styles.trustText}>256-bit AES End-to-End Encryption</Text>
+            <Text style={styles.trustText}>Secure, encrypted connection</Text>
           </View>
+
+          {/* PRIVACY FOOTER */}
+          <PrivacyFooter />
 
         </ScrollView>
       </KeyboardAvoidingView>
@@ -261,4 +265,34 @@ const styles = StyleSheet.create({
   // Trust Banner
   trustBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 40 },
   trustText: { fontSize: 11, color: '#A0AEC0', fontWeight: '700', marginLeft: 5, letterSpacing: 0.5 }
+});
+// ---- Privacy footer (kept in this file, so there is no import to manage) ----
+function PrivacyFooter() {
+  const PRIVACY_URL = 'https://edusalone.netlify.app/privacy';
+  const TERMS_URL = 'https://edusalone.netlify.app/terms';
+  const open = (url: string) => Linking.openURL(url).catch(() => {});
+  return (
+    <View style={pfStyles.wrap}>
+      <View style={pfStyles.line} />
+      <View style={pfStyles.row}>
+        <TouchableOpacity onPress={() => open(PRIVACY_URL)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={pfStyles.link}>Privacy Policy</Text>
+        </TouchableOpacity>
+        <Text style={pfStyles.dot}>  •  </Text>
+        <TouchableOpacity onPress={() => open(TERMS_URL)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={pfStyles.link}>Terms of Service</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={pfStyles.note}>PalmTech Group Ltd. · Your data stays private to your school.</Text>
+    </View>
+  );
+}
+
+const pfStyles = StyleSheet.create({
+  wrap: { width: '100%' as any, alignItems: 'center', paddingTop: 20, paddingBottom: 10, paddingHorizontal: 16 },
+  line: { width: '100%' as any, height: 1, backgroundColor: '#E2E8F0', marginBottom: 16 },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  link: { color: '#1A365D', fontWeight: '800' as any, fontSize: 14 },
+  dot: { color: '#94A3B8', fontSize: 14 },
+  note: { color: '#94A3B8', fontSize: 11, marginTop: 8, textAlign: 'center', fontWeight: '500' as any },
 });
