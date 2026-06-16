@@ -22,6 +22,7 @@ export default function TeachersScreen() {
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [printingRoster, setPrintingRoster] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
   const [selectedStaff, setSelectedStaff] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
@@ -36,9 +37,10 @@ export default function TeachersScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       
-      const { data: profile } = await supabase.from('users').select('school_id').eq('email', user.email).single();
+      const { data: profile } = await supabase.from('users').select('id, school_id').eq('email', user.email).single();
       
       if (profile && profile.school_id) {
+        setCurrentUserId(profile.id);
         const { data: schoolData } = await supabase.from('schools').select('*').eq('id', profile.school_id).single();
         if (schoolData) {
           setSchool(schoolData);
@@ -68,27 +70,41 @@ export default function TeachersScreen() {
     }
   }
 
-  async function deleteStaff(userId: string, name: string) {
-    Alert.alert(
-      'Remove Staff Member?',
-      `Are you sure you want to permanently remove ${name} from the school network?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Yes, Remove', 
-          style: 'destructive', 
-          onPress: async () => {
-            try {
-              const { error } = await supabase.from('users').delete().eq('id', userId);
-              if (error) throw error;
-              fetchStaff(school.id);
-            } catch (err: any) { 
-              Alert.alert('Delete Error', err.message); 
-            }
-          }
-        }
-      ]
-    );
+  async function toggleStaffActive(item: any) {
+    const isActive = item.active !== false;
+    const name = item.full_name || 'this staff member';
+    const verb = isActive ? 'Deactivate' : 'Reactivate';
+
+    const applyChange = async () => {
+      try {
+        const updates = isActive
+          ? { active: false, deactivated_at: new Date().toISOString(), deactivated_by: currentUserId, deactivation_reason: 'Removed by admin' }
+          : { active: true, deactivated_at: null, deactivated_by: null, deactivation_reason: null };
+
+        const { error } = await supabase.from('users').update(updates).eq('id', item.id);
+        if (error) throw error;
+        fetchStaff(school.id);
+      } catch (err: any) {
+        Alert.alert('Update Error', err.message);
+      }
+    };
+
+    const message = isActive
+      ? `${name} will no longer be able to log in. Their records stay safe, and you can reactivate them anytime.`
+      : `${name} will be able to log in and use the app again.`;
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(`${verb} ${name}?\n\n${message}`)) applyChange();
+    } else {
+      Alert.alert(
+        `${verb} staff member?`,
+        message,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: `Yes, ${verb}`, style: isActive ? 'destructive' : 'default', onPress: applyChange },
+        ]
+      );
+    }
   }
 
   function openBioModal(staffMember: any) {
@@ -299,27 +315,37 @@ export default function TeachersScreen() {
             {loading && <ActivityIndicator size="large" color="#3182CE" style={{ marginTop: 20 }} />}
           </View>
         }
-        renderItem={({ item }) => (
-          <TouchableOpacity style={styles.staffCard} onPress={() => openBioModal(item)}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.staffName}>
-                {item.prefix ? `${item.prefix} ` : ''}{item.full_name}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                <Ionicons name="call" size={12} color="#718096" style={{ marginRight: 4 }} />
-                <Text style={styles.staffEmail}>{item.phone || item.email}</Text>
+        renderItem={({ item }) => {
+          const isActive = item.active !== false;
+          return (
+            <TouchableOpacity style={[styles.staffCard, !isActive && styles.staffCardInactive]} onPress={() => openBioModal(item)}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Text style={styles.staffName}>
+                    {item.prefix ? `${item.prefix} ` : ''}{item.full_name}
+                  </Text>
+                  {!isActive && (
+                    <View style={styles.inactiveBadge}>
+                      <Text style={styles.inactiveBadgeText}>DEACTIVATED</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                  <Ionicons name="call" size={12} color="#718096" style={{ marginRight: 4 }} />
+                  <Text style={styles.staffEmail}>{item.phone || item.email}</Text>
+                </View>
               </View>
-            </View>
-            
-            <View style={styles.roleTag}>
-              <Text style={styles.roleTagText}>{item.role}</Text>
-            </View>
 
-            <TouchableOpacity onPress={() => deleteStaff(item.id, item.full_name)} style={styles.deleteBtn}>
-              <Ionicons name="trash-outline" size={20} color="#E53E3E" />
+              <View style={styles.roleTag}>
+                <Text style={styles.roleTagText}>{item.role}</Text>
+              </View>
+
+              <TouchableOpacity onPress={() => toggleStaffActive(item)} style={[styles.deleteBtn, !isActive && styles.reactivateBtn]}>
+                <Ionicons name={isActive ? 'ban-outline' : 'refresh-outline'} size={20} color={isActive ? '#E53E3E' : '#38A169'} />
+              </TouchableOpacity>
             </TouchableOpacity>
-          </TouchableOpacity>
-        )}
+          );
+        }}
         ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No staff members registered yet.</Text> : null}
       />
     </SafeAreaView>
@@ -352,6 +378,10 @@ const styles = StyleSheet.create({
   roleTag: { backgroundColor: '#FEEBC8', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginRight: 10 },
   roleTagText: { color: '#DD6B20', fontSize: 11, fontWeight: '900' },
   deleteBtn: { padding: 8, backgroundColor: '#FFF5F5', borderRadius: 8 },
+  reactivateBtn: { backgroundColor: '#F0FFF4' },
+  staffCardInactive: { opacity: 0.55 },
+  inactiveBadge: { backgroundColor: '#FFF5F5', borderWidth: 1, borderColor: '#FEB2B2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginLeft: 8 },
+  inactiveBadgeText: { color: '#C53030', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
   emptyText: { textAlign: 'center', color: '#A0AEC0', marginTop: 20, fontStyle: 'italic', fontSize: 15, fontWeight: 'bold' },
 
   // Modal & Bio Styles
