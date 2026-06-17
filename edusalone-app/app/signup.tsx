@@ -66,7 +66,7 @@ export default function SignupScreen() {
   // -- Derived UI Logic (Fixes the UI error in your screenshot) --
   const isStudent = userRole === 'Student / Pupil';
   const isPublic = userRole === 'Public Gamer';
-  const ROLES = ['Student / Pupil', 'Teacher', 'Parent', 'Bursar', 'Secretary', 'Principal', 'Public Gamer'];
+  const ROLES = ['Student / Pupil', 'Teacher', 'Parent', 'Bursar', 'Secretary', 'Principal', 'Proprietor', 'Public Gamer'];
 
   const handleAccountActivation = async () => {
     if (!userRole || !fullName || !email || !password) {
