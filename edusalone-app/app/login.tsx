@@ -79,7 +79,7 @@ export default function LoginScreen() {
 
       // SMAR ROUTING ARCHITECTURE
       if (userRole === 'superadmin') router.replace('/super-admin');
-      else if (['admin', 'principal', 'secretary', 'bursar'].includes(userRole)) {
+      else if (['admin', 'principal', 'secretary', 'bursar', 'proprietor'].includes(userRole)) {
         router.replace('/(tabs)/dashboard');
       } else if (userRole === 'teacher') router.replace('/teacher-dashboard');
       else if (['student', 'parent', 'public gamer'].includes(userRole)) {
