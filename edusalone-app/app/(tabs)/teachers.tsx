@@ -35,9 +35,7 @@ export default function TeachersScreen() {
   async function loadInitialData() {
     setLoading(true);
     try {
-      console.log('LOAD DEBUG → start');
       const { data: { user } } = await supabase.auth.getUser();
-      console.log('LOAD DEBUG → user?', user?.email);
       if (!user) return;
       
       const { data: profile } = await supabase.from('users').select('id, school_id, role').eq('email', user.email).single();
@@ -115,6 +113,27 @@ export default function TeachersScreen() {
         ]
       );
     }
+  }
+
+  // Decides whether the deactivate/reactivate switch may show for a given staff row.
+  // Rule 1: only a proprietor may act on a Principal.
+  // Rule 2: the last active principal can never be deactivated (school must keep one).
+  function canToggleStaff(item: any) {
+    const targetRole = (item.role || '').toLowerCase().trim();
+
+    if (targetRole === 'principal') {
+      if (currentUserRole !== 'proprietor') return false;
+
+      const isActive = item.active !== false;
+      if (isActive) {
+        const activePrincipals = staff.filter(
+          (s: any) => (s.role || '').toLowerCase().trim() === 'principal' && s.active !== false
+        );
+        if (activePrincipals.length <= 1) return false;
+      }
+    }
+
+    return true;
   }
 
   function openBioModal(staffMember: any) {
@@ -350,9 +369,11 @@ export default function TeachersScreen() {
                 <Text style={styles.roleTagText}>{item.role}</Text>
               </View>
 
-              <TouchableOpacity onPress={() => toggleStaffActive(item)} style={[styles.deleteBtn, !isActive && styles.reactivateBtn]}>
-                <Ionicons name={isActive ? 'ban-outline' : 'refresh-outline'} size={20} color={isActive ? '#E53E3E' : '#38A169'} />
-              </TouchableOpacity>
+              {canToggleStaff(item) && (
+                <TouchableOpacity onPress={() => toggleStaffActive(item)} style={[styles.deleteBtn, !isActive && styles.reactivateBtn]}>
+                  <Ionicons name={isActive ? 'ban-outline' : 'refresh-outline'} size={20} color={isActive ? '#E53E3E' : '#38A169'} />
+                </TouchableOpacity>
+              )}
             </TouchableOpacity>
           );
         }}
