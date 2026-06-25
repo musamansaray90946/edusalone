@@ -23,6 +23,7 @@ export default function TeachersScreen() {
   const [loading, setLoading] = useState(true);
   const [printingRoster, setPrintingRoster] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<string>('');
   
   const [selectedStaff, setSelectedStaff] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
@@ -34,17 +35,20 @@ export default function TeachersScreen() {
   async function loadInitialData() {
     setLoading(true);
     try {
+      console.log('LOAD DEBUG → start');
       const { data: { user } } = await supabase.auth.getUser();
+      console.log('LOAD DEBUG → user?', user?.email);
       if (!user) return;
       
-      const { data: profile } = await supabase.from('users').select('id, school_id').eq('email', user.email).single();
+      const { data: profile } = await supabase.from('users').select('id, school_id, role').eq('email', user.email).single();
       
       if (profile && profile.school_id) {
         setCurrentUserId(profile.id);
+        setCurrentUserRole((profile.role || '').toLowerCase().trim());
         const { data: schoolData } = await supabase.from('schools').select('*').eq('id', profile.school_id).single();
         if (schoolData) {
           setSchool(schoolData);
-          fetchStaff(schoolData.id);
+          fetchStaff(schoolData.id, (profile.role || '').toLowerCase().trim());
         }
       }
     } catch (err: any) { 
@@ -52,13 +56,19 @@ export default function TeachersScreen() {
     }
   }
 
-  async function fetchStaff(schoolId: string) {
+  async function fetchStaff(schoolId: string, viewerRole: string) {
     try {
+      // A proprietor (school owner) also sees the Principal, so they can manage them.
+      // Everyone else (e.g. a principal viewing this screen) sees only the staff below them.
+      const rolesToShow = viewerRole === 'proprietor'
+        ? ['Teacher', 'Bursar', 'Secretary', 'Principal']
+        : ['Teacher', 'Bursar', 'Secretary'];
+
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('school_id', schoolId)
-        .in('role', ['Teacher', 'Bursar', 'Secretary'])
+        .in('role', rolesToShow)
         .order('full_name', { ascending: true });
 
       if (error) throw error;
@@ -83,7 +93,7 @@ export default function TeachersScreen() {
 
         const { error } = await supabase.from('users').update(updates).eq('id', item.id);
         if (error) throw error;
-        fetchStaff(school.id);
+        fetchStaff(school.id, currentUserRole);
       } catch (err: any) {
         Alert.alert('Update Error', err.message);
       }
