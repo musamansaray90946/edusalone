@@ -134,6 +134,8 @@ export default function LoginScreen() {
                   onChangeText={setEmail}
                   autoCapitalize="none"
                   keyboardType="email-address"
+                  autoComplete="email"
+                  textContentType="emailAddress"
                 />
               </View>
             </View>
@@ -155,6 +157,8 @@ export default function LoginScreen() {
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
+                  autoComplete="current-password"
+                  textContentType="password"
                 />
                 <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeAction}>
                   <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#718096" />
