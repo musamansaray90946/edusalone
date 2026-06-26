@@ -90,7 +90,7 @@ function ContactsList({ me, contacts, lastMsgs, onOpen, onRefresh, onClose }: an
                   <Text style={cl.hdrTitle}>EduChat</Text>
               </View>
               <View style={{ flexDirection: 'row', gap: 18 }}>
-                  <TouchableOpacity onPress={() => Alert.alert('Secured', 'All messages are E2E encrypted.')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <TouchableOpacity onPress={() => Alert.alert('Secured', 'Messages are sent over a secure, encrypted connection and stay private to your school.')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                       <Ionicons name="shield-checkmark" size={22} color="#fff" />
                   </TouchableOpacity>
               </View>
@@ -353,7 +353,7 @@ function ChatConvo({ me, contact, contacts, onBack, onRefreshList }: { me: UserP
                                   </TouchableOpacity>
                               );
                           }}
-                          ListEmptyComponent={<View style={{ alignItems: 'center', marginTop: 90, paddingHorizontal: 30, transform: [{ scaleY: -1 }] }}><View style={cc.encryptBox}><Text style={cc.encryptTxt}>🔒 Messages are end-to-end encrypted.{'\n'}No one outside this chat can read them.</Text></View></View>}
+                          ListEmptyComponent={<View style={{ alignItems: 'center', marginTop: 90, paddingHorizontal: 30, transform: [{ scaleY: -1 }] }}><View style={cc.encryptBox}><Text style={cc.encryptTxt}>🔒 Messages are sent over a secure, encrypted connection.{'\n'}They stay private to your school.</Text></View></View>}
                       />
                   )}
               </View>

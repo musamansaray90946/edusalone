@@ -1,9 +1,9 @@
 import React from 'react';
 import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-// 🔗 Paste your hosted links here once the pages exist (I can build them for you):
-const PRIVACY_URL = 'https://edusalone.netlify.app/privacy';
-const TERMS_URL   = 'https://edusalone.netlify.app/terms';
+// 🔗 Hosted policy pages (live on Netlify):
+const PRIVACY_URL = 'https://edusalone.netlify.app/privacy.html';
+const TERMS_URL   = 'https://edusalone.netlify.app/terms.html';
 
 export default function PrivacyFooter() {
   const open = (url: string) => Linking.openURL(url).catch(() => {});

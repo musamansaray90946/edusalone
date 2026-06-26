@@ -279,8 +279,8 @@ const styles = StyleSheet.create({
 });
 // ---- Privacy footer (kept in this file, so there is no import to manage) ----
 function PrivacyFooter() {
-  const PRIVACY_URL = 'https://edusalone.netlify.app/privacy';
-  const TERMS_URL = 'https://edusalone.netlify.app/terms';
+  const PRIVACY_URL = 'https://edusalone.netlify.app/privacy.html';
+  const TERMS_URL = 'https://edusalone.netlify.app/terms.html';
   const open = (url: string) => Linking.openURL(url).catch(() => {});
   return (
     <View style={pfStyles.wrap}>
