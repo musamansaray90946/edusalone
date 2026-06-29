@@ -366,7 +366,7 @@ function ChatConvo({ me, contact, onBack, onRefreshList }: { me: UserProfile; co
                 }}
                 ListEmptyComponent={
                   <View style={{ alignItems: 'center', marginTop: 90, paddingHorizontal: 30, transform: [{ scaleY: -1 }] }}>
-                    <View style={cc.encryptBox}><Text style={cc.encryptTxt}>🔒 Messages are end-to-end encrypted.{'\n'}No one outside this chat can read them.</Text></View>
+                    <View style={cc.encryptBox}><Text style={cc.encryptTxt}>🔒 Messages are sent over a secure, encrypted connection.{'\n'}They stay private to your school.</Text></View>
                   </View>
                 }
               />}
