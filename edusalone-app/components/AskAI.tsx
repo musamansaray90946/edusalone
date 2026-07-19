@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
+    ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, ScrollView,
     StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { supabase } from '../src/lib/supabase';
@@ -13,6 +13,14 @@ export default function AskAI({ themeColor = '#1A365D' }: { themeColor?: string 
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<ScrollView | null>(null);
+  const [kbHeight, setKbHeight] = useState(0);
+
+  // Lift the input bar above the Android keyboard so it never covers the text box.
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', e => setKbHeight(e.endCoordinates.height));
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKbHeight(0));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
   async function send() {
     const q = input.trim();
@@ -64,7 +72,7 @@ export default function AskAI({ themeColor = '#1A365D' }: { themeColor?: string 
         )}
       </ScrollView>
 
-      <View style={styles.inputBar}>
+      <View style={[styles.inputBar, { marginBottom: Platform.OS === 'android' ? kbHeight : 0 }]}>
         <TextInput
           style={styles.input}
           placeholder="Ask a question..."

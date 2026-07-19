@@ -29,7 +29,7 @@
       },
       "package": "com.palmtech.edusalone",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 2,
+      "versionCode": 3,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "CAMERA",
