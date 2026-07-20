@@ -1,15 +1,36 @@
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import OnboardingCarousel from '../components/OnboardingCarousel';
 
 export default function WelcomeScreen() {
   const router = useRouter();
+  const [checkingOnboarding, setCheckingOnboarding] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
+  useEffect(() => {
+    AsyncStorage.getItem('edusalone_onboarding_done').then(val => {
+      setShowOnboarding(val !== 'true');
+      setCheckingOnboarding(false);
+    });
+  }, []);
+
+  // Still checking AsyncStorage — show nothing briefly to avoid flash
+  if (checkingOnboarding) return null;
+
+  // First-time user — show the carousel
+  if (showOnboarding) {
+    return (
+      <OnboardingCarousel onDone={() => setShowOnboarding(false)} />
+    );
+  }
+
+  // Returning user — show the normal home screen
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        {/* Pulls your transparent PalmTech Logo */}
         <Image source={require('../assets/images/icon.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.title}>WELCOME TO EDUSALONE</Text>
         <Text style={styles.subtitle}>The Premier Educational SaaS Platform</Text>
