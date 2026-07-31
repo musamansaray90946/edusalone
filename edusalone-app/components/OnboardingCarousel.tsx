@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useRef, useState } from 'react';
 import {
-    Dimensions, FlatList, Image, Platform, StatusBar,
-    StyleSheet, Text, TouchableOpacity, View
+  Dimensions, FlatList, Image, Platform, StatusBar,
+  StyleSheet, Text, TouchableOpacity, View
 } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
@@ -78,7 +78,7 @@ export default function OnboardingCarousel({ onDone }: { onDone: () => void }) {
           <Image
             source={require('../assets/images/onboarding-hero.png')}
             style={styles.heroPhoto}
-            resizeMode="cover"
+            resizeMode="contain"
           />
         )}
 
@@ -191,7 +191,8 @@ const styles = StyleSheet.create({
   },
   heroPhoto: {
     width: '100%' as any,
-    height: height * 0.42,
+    height: height * 0.48,
+    resizeMode: 'cover',
   },
   statsWrap: {
     paddingHorizontal: 20,
