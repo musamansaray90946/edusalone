@@ -294,7 +294,7 @@ function PrivacyFooter() {
           <Text style={pfStyles.link}>Terms of Service</Text>
         </TouchableOpacity>
       </View>
-      <Text style={pfStyles.note}>PalmTech Group Ltd. · Your data stays private to your school.</Text>
+      <Text style={pfStyles.note}>PalmRoot Tech SL Limited · Your data stays private to your school.</Text>
     </View>
   );
 }

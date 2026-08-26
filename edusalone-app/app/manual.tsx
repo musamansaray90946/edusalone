@@ -416,7 +416,7 @@ export default function ManualScreen() {
             <View>
               <View style={styles.supportCard}>
                 <Text style={styles.supportTitle}>📩 Submit Support Ticket</Text>
-                <Text style={styles.supportSubtitle}>Direct line to PalmTech Group support engineers.</Text>
+                <Text style={styles.supportSubtitle}>Direct line to PalmRoot Tech support engineers.</Text>
 
                 <Text style={styles.inputLabel}>SUBJECT</Text>
                 <TextInput style={styles.input} placeholder="e.g. Report card showing wrong data" value={subject} onChangeText={setSubject} />
@@ -442,7 +442,7 @@ export default function ManualScreen() {
               </View>
 
               <Text style={{ textAlign: 'center', color: '#A0AEC0', fontSize: 11, marginTop: 20 }}>
-                EduSalone v1.0 • Built by PalmTech Group Ltd.{'\n'}For Sierra Leone Schools
+                EduSalone v1.0 • Built by PalmRoot Tech SL Limited{'\n'}For Sierra Leone Schools
               </Text>
             </View>
           )}

@@ -51,7 +51,7 @@ export default function SuperAdminScreen() {
         await supabase.from('principal_notifications').upsert({
           school_id: school.id, type: 'trial_expiring',
           title: '⏰ Trial Period Expiring Soon',
-          message: `Your ${daysUntilTrial}-day trial expires on ${trialEnd?.toLocaleDateString()}. Contact PalmTech Education to continue uninterrupted access.`,
+          message: `Your ${daysUntilTrial}-day trial expires on ${trialEnd?.toLocaleDateString()}. Contact PalmRoot Tech to continue uninterrupted access.`,
           is_read: false
         }, { onConflict: 'school_id,type' });
       }
@@ -62,7 +62,7 @@ export default function SuperAdminScreen() {
         await supabase.from('principal_notifications').insert({
           school_id: school.id, type: 'suspension_warning',
           title: '🚨 Trial Expired — Grace Period Active',
-          message: `Your trial has expired. You have ${school.grace_period_days || 7} days before automatic suspension. Please contact PalmTech Education immediately.`,
+          message: `Your trial has expired. You have ${school.grace_period_days || 7} days before automatic suspension. Please contact PalmRoot Tech immediately.`,
         });
       }
 

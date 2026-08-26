@@ -12,7 +12,7 @@ const ONBOARDING_KEY = 'edusalone_onboarding_done';
 const slides = [
   {
     id: '1',
-    chip: 'PALMTECH GROUP LTD.',
+    chip: 'PALMROOT TECH SL LTD.',
     title: 'Built for\nSierra Leone\'s',
     titleBlue: 'schools.',
     sub: 'Every student deserves a school\nthat runs with confidence.',

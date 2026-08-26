@@ -67,7 +67,7 @@ export default function ContactScreen() {
           {/* 2. HERO BRANDING CARD */}
           <View style={styles.heroCard}>
             <View style={styles.heroInfo}>
-              <Text style={styles.heroBrand}>PalmTech Group Ltd.</Text>
+              <Text style={styles.heroBrand}>PalmRoot Tech SL Limited</Text>
               <Text style={styles.heroSub}>Official Technical Support Division</Text>
               <View style={styles.locationRow}>
                 <Ionicons name="location" size={14} color="#FFF" opacity={0.8} />

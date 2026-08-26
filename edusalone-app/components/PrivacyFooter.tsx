@@ -19,7 +19,7 @@ export default function PrivacyFooter() {
           <Text style={pf.link}>Terms of Service</Text>
         </TouchableOpacity>
       </View>
-      <Text style={pf.note}>PalmTech Group Ltd. · Your data stays private to your school.</Text>
+      <Text style={pf.note}>PalmRoot Tech SL Limited · Your data stays private to your school.</Text>
     </View>
   );
 }

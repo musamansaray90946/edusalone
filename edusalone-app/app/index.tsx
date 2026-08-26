@@ -57,13 +57,13 @@ export default function WelcomeScreen() {
           <Ionicons name="headset" size={24} color="#1A365D" style={styles.icon} />
           <View>
             <Text style={styles.secondaryButtonText}>CONTACT SUPPORT</Text>
-            <Text style={styles.secondaryButtonSubText}>Get help from PalmTech</Text>
+            <Text style={styles.secondaryButtonSubText}>Get help from PalmRoot Tech</Text>
           </View>
         </TouchableOpacity>
       </View>
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>Powered by PalmTech Group Ltd.</Text>
+        <Text style={styles.footerText}>Powered by PalmRoot Tech SL Limited</Text>
         <Text style={styles.footerText}>Version 1.0.0 | International Standard</Text>
       </View>
     </SafeAreaView>
