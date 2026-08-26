@@ -120,7 +120,6 @@ export default function SuperAdminScreen() {
       loadSchools(); 
     }
   }
-
   async function uploadSchoolLogo(schoolId: string, schoolName: string) {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,

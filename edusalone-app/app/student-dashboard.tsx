@@ -6,20 +6,20 @@ import * as Sharing from 'expo-sharing';
 import * as Speech from 'expo-speech';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  KeyboardAvoidingView,
-  Linking,
-  Modal,
-  Platform,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Alert,
+    Animated,
+    KeyboardAvoidingView,
+    Linking,
+    Modal,
+    Platform,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import AskAI from '../components/AskAI';
 import { registerForPush } from '../src/lib/registerPush';
@@ -889,12 +889,12 @@ useEffect(() => {
     setSelectedOption(option); setAnswered(true); setIsSpeaking(true); 
 
     const currentQ = triviaBank[quizIndex];
-    if (option === currentQ.answer) {
+    if (option === currentQ.answer) { 
       const newStreak = streak + 1; setStreak(newStreak);
       let multiplier = 1; if (currentQ.difficulty === 2) multiplier = 2; if (currentQ.difficulty === 3) multiplier = 3;
       const xpGained = 10 * multiplier;
       syncXPToDatabase(brainPoints + xpGained);
-      
+          
       const praise = praisePhrases[Math.floor(Math.random() * praisePhrases.length)];
       setFeedbackMsg(`✅ Correct! +${xpGained} XP`);
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
