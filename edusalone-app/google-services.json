@@ -7,6 +7,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:520020832091:android:f3cbfcbce1ce4b8278b47e",
+        "android_client_info": {
+          "package_name": "com.palmroottech.edusalone"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTcO6-Zv_D1whbc7LoQFRuwEZE3hI0Cyo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:520020832091:android:fce5812cc8f7aaae78b47e",
         "android_client_info": {
           "package_name": "com.palmtech.edusalone"

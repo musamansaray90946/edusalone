@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.palmtech.edusalone",
+      "bundleIdentifier": "com.palmroottech.edusalone",
       "buildNumber": "1",
       "infoPlist": {
         "NSCameraUsageDescription": "Allow EduSalone to take photos for chat and profiles.",
@@ -27,9 +27,9 @@
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#1A365D"
       },
-      "package": "com.palmtech.edusalone",
+      "package": "com.palmroottech.edusalone",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 3,
+      "versionCode": 1,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "CAMERA",
