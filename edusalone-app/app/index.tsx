@@ -31,7 +31,7 @@ export default function WelcomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Image source={require('../assets/images/icon.png')} style={styles.logo} resizeMode="contain" />
+        <Image source={require('../assets/images/logo-badge.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.title}>WELCOME TO EDUSALONE</Text>
         <Text style={styles.subtitle}>The Premier Educational SaaS Platform</Text>
       </View>
