@@ -1,50 +1,75 @@
-# Welcome to your Expo app 👋
+<h1 align="center">
+  <img src="https://github.com/user-attachments/assets/30bd2af8-bd63-44f1-b5d2-51c84b4ecb2c" alt="PalmTech Logo" width="120"/>
+  <br/>
+  EduSalone
+</h1>
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+<h4 align="center">The Premier School Management SaaS Platform for Sierra Leone</h4>
 
-## Get started
+<p align="center">
+  <a href="https://edusalone.vercel.app"><b>View Live Web App</b></a> •
+  <a href="#features"><b>Features</b></a> •
+  <a href="#architecture"><b>Architecture</b></a>
+</p>
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## 📖 Overview
+**EduSalone** is a production-ready, multi-tenant Software as a Service (SaaS) built to completely digitize school administration across West Africa. Designed specifically for the WASSCE/BECE curriculum, it eliminates paper records by providing automated grading, PDF report card generation, offline-tolerant data entry, and digital fee ledgers.
 
-2. Start the app
+## 📸 System Previews
 
-   ```bash
-   npx expo start
-   ```
+| Super Admin Dashboard | Teacher Portal |
+| :---: | :---: |
+| <img src="https://github.com/user-attachments/assets/5b24206b-865a-4ebb-b3de-55df6035eee0" width="400"/> | <img src="https://github.com/user-attachments/assets/af58834a-9ea1-4558-9aef-2c06ef0b86b0" width="400"/> |
+| **Manage Multiple Schools & Subscriptions** | **Enter Grades & Affective Traits** |
 
-In the output, you'll find options to open the app in a
+| Financial Ledger | PDF Report Card |
+| :---: | :---: |
+| <img src="https://github.com/user-attachments/assets/6cddd6ac-0b33-4d09-8b50-56cff3c24c5c" width="400"/> | <img src="https://github.com/user-attachments/assets/33612a5d-b838-4ebf-a185-e908aa7b65b9" width="400"/> |
+| **Track SLL Payments & Balances** | **Auto-Calculated WASSCE Standard PDF** |
+---
+## ✨ Core Features by Role
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### 🏛️ Super Admin (PalmTech CEO)
+* **SaaS Subscription Engine:** Manage all client schools. If a school's trial expires, the system automatically locks their access via middleware.
+* **School Code Generation:** Autogenerates secure codes (e.g., `STE-2026`) that Principals use to invite staff and students.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### 🏫 Principal (School Admin)
+* **Secure Isolation:** Can only view data, staff, and students mapped to their specific `school_id`.
+* **Finance Ledger:** Logs partial and full fee payments in Sierra Leonean Leones (SLL), calculates outstanding balances, and generates A4 PDF receipts.
+* **Attendance Generation:** Prints a full 31-day monthly class register based on daily teacher roll calls.
 
-## Get a fresh project
+### 👨‍🏫 Teacher
+* **Smart Grading Spreadsheet:** A horizontal, mobile-friendly spreadsheet that blocks mathematical errors (scores over 100).
+* **Automated Logic:** Calculates Term Totals, Yearly Means, and injects official WASSCE letter grades (A1 - F9) instantly.
+* **End of Term Evaluations:** Teachers input Affective Traits and Psychomotor Skills (1-5 scale) directly into the database.
 
-When you're ready, run:
+### 🎓 Parent & Student
+* **Account Linking:** Parents securely link to their child's records using their Admission Number.
+* **Instant PDF Downloads:** View and download official A4 Report Cards that pull live data from the database.
 
+---
+
+## 🏗️ System Architecture & Security
+
+This platform is built with a modern, scalable tech stack, ensuring 99.9% uptime and strict data privacy.
+
+* **Frontend:** React Native (Expo) - Compiled for both Web (Vercel) and Android (EAS APK/AAB).
+* **Backend:** Supabase / PostgreSQL.
+* **Security:** 
+  * **Row Level Security (RLS):** Database-level security ensuring strict Multi-Tenant isolation. School A can never query School B's data.
+  * **Role-Based Access Control (RBAC):** UI routing strictly verified against database roles (Admin vs. Teacher vs. Parent).
+* **Offline Tolerance:** Integrates `AsyncStorage` to cache student data. If internet connectivity drops, the app falls back to local memory and gracefully alerts the user, preventing system crashes.
+* **PDF Engine:** Custom HTML-to-PDF conversion via `expo-print`, fully styled for A4 document standards.
+
+---
+
+## 💻 Local Development Setup
+
+To run this project locally on your machine:
+
+**1. Clone the repository**
 ```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+git clone https://github.com/musamansaray90946/edusalone.git
+cd edusalone
