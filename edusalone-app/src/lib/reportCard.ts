@@ -337,7 +337,8 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
     .frame { border: 4px solid var(--primary); box-shadow: inset 0 0 0 2px var(--accent); border-radius: 6px;
       padding: 12px; flex: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; }
     .wm { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:Arial,sans-serif;
-      font-size:120px; font-weight:900; color:var(--soft); opacity:.55; letter-spacing:6px; z-index:0; }
+      font-weight:900; color:var(--soft); opacity:.55; letter-spacing:4px; z-index:0;
+      text-align:center; padding:0 60px; line-height:1.15; word-break:break-word; }
     .content { position: relative; z-index: 1; display:flex; flex-direction:column; flex:1; }
     .header { display:flex; align-items:center; gap:14px; border-bottom: 3px double var(--accent); padding-bottom:9px; }
     .logo { width:60px; height:60px; border-radius:50%; border:2px solid var(--primary); background:var(--soft);
@@ -403,7 +404,7 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
   </style></head><body>
   <div class="page">
     <div class="frame">
-      <div class="wm">OFFICIAL</div>
+      <div class="wm" style="font-size:${Math.max(38, Math.min(120, Math.round(1500 / Math.max(8, (school.name || 'OFFICIAL').length))))}px">${esc((school.name || 'OFFICIAL').toUpperCase())}</div>
       <div class="content">
         <div class="header">
           <div class="logo">${logoHtml}</div>
