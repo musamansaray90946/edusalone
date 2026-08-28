@@ -427,7 +427,7 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
               <tr><td>Name</td><td style="font-weight:900">${esc(studentName)}</td></tr>
               <tr><td>Sex</td><td>${esc(student.gender || '-')}</td></tr>
               <tr><td>Date of Birth</td><td>${esc(student.date_of_birth || '-')}</td></tr>
-              <tr><td>Form</td><td style="font-weight:bold">${esc(student.current_class || '-')}</td></tr>
+              <tr><td>${level === 'PRIMARY' ? 'Class' : 'Form'}</td><td style="font-weight:bold">${esc(student.current_class || '-')}</td></tr>
               <tr><td>Admission No.</td><td style="color:var(--primary);font-weight:bold">${esc(student.admission_number || '-')}</td></tr>
             </table>
           </div>
@@ -445,7 +445,7 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
             <div class="sl"><span class="l">Average Pct</span><span class="v">${overallMean}%</span></div>
             <div class="sl"><span class="l">Class Position</span><span class="v">${ord(myYearRnk)}</span></div>
             <div class="sl"><span class="l">Students in Class</span><span class="v">${args.classSize}</span></div>
-            <div class="sl"><span class="l">Exam Board</span><span class="v">${p.examBoard}</span></div>
+            ${p.examBoard ? `<div class="sl"><span class="l">Exam Board</span><span class="v">${p.examBoard}</span></div>` : ''}
           </div>
         </div>
 
