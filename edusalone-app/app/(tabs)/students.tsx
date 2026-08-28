@@ -79,7 +79,7 @@ export default function StudentsScreen() {
       if (userError) throw userError;
       
       const { error: studentError } = await supabase.from('students').insert([{ 
-        user_id: userData.id, school_id: school.id, admission_number: admissionNumber.trim(), current_class: currentClass.toUpperCase().replace(/\s/g, ''), gender: gender, date_of_birth: dob, report_published: false
+        user_id: userData.id, school_id: school.id, admission_number: admissionNumber.trim(), current_class: currentClass.trim(), gender: gender, date_of_birth: dob, report_published: false
       }]);
       if (studentError) throw studentError;
       

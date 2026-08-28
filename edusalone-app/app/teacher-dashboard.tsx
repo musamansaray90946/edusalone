@@ -1,3 +1,4 @@
+import { ALL_CLASSES } from '@/constants/classes';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as DocumentPicker from 'expo-document-picker';
@@ -18,7 +19,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AskAI from '../components/AskAI';
 import { registerForPush } from '../src/lib/registerPush';
 import { supabase } from '../src/lib/supabase';
-
 // ─────────────────────────────────────────────
 // INTERFACES & CONSTANTS
 // ─────────────────────────────────────────────
@@ -532,7 +532,7 @@ export default function TeacherDashboard() {
   const [mySentDocs, setMySentDocs] = useState<any[]>([]);
   const [showMySent, setShowMySent] = useState(false);
 
-  const classOptions = ['JSS1', 'JSS2', 'JSS3', 'SS1', 'SS2', 'SS3'];
+  const classOptions = ALL_CLASSES;
   const termOptions = ['First Term', 'Second Term', 'Third Term'];
   const yearOptions = ['2025/2026', '2026/2027', '2027/2028', '2028/2029', '2029/2030'];
   const ratingOptions = [1, 2, 3, 4, 5];

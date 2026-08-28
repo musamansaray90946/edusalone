@@ -81,7 +81,7 @@ function esc(s: any): string {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function schoolPalette(name: string, isJSS: boolean) {
+function schoolPalette(name: string, level: 'PRIMARY' | 'JSS' | 'SS') {
   let h = 0;
   for (let i = 0; i < (name || '').length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
   const hue = Math.abs(h) % 360;
@@ -97,10 +97,11 @@ function schoolPalette(name: string, isJSS: boolean) {
     primary: hslToHex(hue, 52, 24),
     band: hslToHex(hue, 50, 31),
     soft: hslToHex(hue, 45, 95),
-    accent: isJSS ? '#C49A3A' : '#5E7A99',
-    levelName: isJSS ? 'JUNIOR SECONDARY SCHOOL' : 'SENIOR SECONDARY SCHOOL',
-    levelTag: isJSS ? 'JSS' : 'SS',
-    examBoard: isJSS ? 'BECE / WAEC' : 'WASSCE / WAEC',
+    accent: level === 'PRIMARY' ? '#3FA34D' : level === 'JSS' ? '#C49A3A' : '#5E7A99',
+    levelName: level === 'PRIMARY' ? 'PRIMARY SCHOOL' : level === 'JSS' ? 'JUNIOR SECONDARY SCHOOL' : 'SENIOR SECONDARY SCHOOL',
+    levelTag: level === 'PRIMARY' ? 'PRIMARY' : level === 'JSS' ? 'JSS' : 'SS',
+    // Primary pupils sit no external board exam, so this line stays empty for them.
+    examBoard: level === 'PRIMARY' ? '' : level === 'JSS' ? 'BECE / WAEC' : 'WASSCE / WAEC',
   };
 }
 
@@ -110,6 +111,12 @@ function schoolPalette(name: string, isJSS: boolean) {
 // NOTE: To add a PRIMARY level later, return a third value from here and extend
 // schoolPalette(), gradeFor() and the grade-key bar to handle it. The rest of the
 // builder does not need to change.
+function detectLevel(cls: string | null | undefined): 'PRIMARY' | 'JSS' | 'SS' {
+  const pc = (cls || '').toUpperCase().replace(/\s+/g, ' ').trim();
+  // Primary is checked first so "Class 1" is never caught by a later rule.
+  if (/CLASS|BASIC|PRIMARY|NURSERY|\bKG\b|PREP|GRADE/.test(pc)) return 'PRIMARY';
+  return detectIsJSS(cls) ? 'JSS' : 'SS';
+}
 function detectIsJSS(cls: string | null | undefined): boolean {
   const c = (cls || '').toUpperCase().replace(/\s+/g, ' ').trim();
   // Explicit SENIOR markers → Senior Secondary
@@ -127,8 +134,9 @@ function detectIsJSS(cls: string | null | undefined): boolean {
   return false;
 }
 
-function gradeFor(tot: number, isJSS: boolean): [string, string, boolean] {
-  if (isJSS) {
+function gradeFor(tot: number, level: 'PRIMARY' | 'JSS' | 'SS'): [string, string, boolean] {
+  // Primary and JSS both use the numeric 1-6 scale; only SS uses WAEC letters.
+  if (level !== 'SS') {
     if (tot >= 75) return ['1', 'EXCELLENT', true];
     if (tot >= 65) return ['2', 'V. GOOD', true];
     if (tot >= 55) return ['3', 'GOOD', true];
@@ -155,8 +163,8 @@ function shortHash(s: string): string {
 
 export function buildReportCardHTML(args: BuildReportArgs): string {
   const { school, student, academicYear, attendance, ev } = args;
-  const isJSS = detectIsJSS(student.current_class);
-  const p = schoolPalette(school.name || 'EduSalone', isJSS);
+  const level = detectLevel(student.current_class);
+  const p = schoolPalette(school.name || 'EduSalone', level);
 
   const yrRecords = args.classRecords.filter(r => !r.academic_year || r.academic_year === academicYear);
 
@@ -252,7 +260,7 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
       colSum.yearly += yTot; grandTotal += yTot; maxObtainable += terms * 100;
 
       const subjMean = terms ? yTot / terms : 0;
-      const [g, rem, pass] = gradeFor(subjMean, isJSS);
+      const [g, rem, pass] = gradeFor(subjMean, level);
       const yRnk = subjectYearRank[subj]?.[student.id];
 
       const block = (tk: TermKey) => {
@@ -299,7 +307,7 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
     return `<div class="prow"><span class="pname">${name}</span><div class="bars">${bars}</div><span class="score">${v > 0 ? v : '—'}</span></div>`;
   };
 
-  const keys = isJSS
+  const keys = level !== 'SS'
     ? [['75–100', 'Grd 1 EXCELLENT', '#1f6f4a'], ['65–74', 'Grd 2 V.GOOD', '#4A5568'], ['45–64', 'Grd 3/4 CREDIT', '#2b6cb0'], ['35–44', 'Grd 5 PASS', '#4299e1'], ['0–34', 'Grd 6 FAIL', '#e53e3e']]
     : [['75–100', 'A1 EXCELLENT', '#1f6f4a'], ['65–74', 'B2/B3 GOOD', '#4A5568'], ['50–64', 'C4–C6 CREDIT', '#2b6cb0'], ['40–49', 'D7/E8 PASS', '#4299e1'], ['0–39', 'F9 FAIL', '#e53e3e']];
   const keyBar = `<div class="keys">${keys.map(k => `<div class="key" style="background:${k[2]}">${k[0]}: ${k[1]}</div>`).join('')}</div>`;
