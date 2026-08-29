@@ -17,6 +17,13 @@ const getSchoolThemeColor = (schoolName: string) => {
   return premiumColors[Math.abs(hash) % premiumColors.length];
 };
 
+// Defined locally rather than imported: VS Code's organize-imports-on-save
+// strips this import. Keep in step with constants/classes.ts.
+const ALL_CLASSES = [
+  'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6',
+  'JSS1', 'JSS2', 'JSS3',
+  'SS1', 'SS2', 'SS3',
+];
 export default function TeachersScreen() {
   const [school, setSchool] = useState<any>(null);
   const [staff, setStaff] = useState<any[]>([]);
@@ -113,6 +120,57 @@ export default function TeachersScreen() {
         ]
       );
     }
+  }
+
+  // A class teacher owns one class and teaches all its subjects — the normal
+  // pattern in primary. This only sets the default class on their dashboard;
+  // they can still be given subjects in other classes.
+  function assignClassTeacher(item: any) {
+    const name = item.full_name || 'this teacher';
+
+    const save = async (cls: string | null) => {
+      try {
+        const { error } = await supabase
+          .from('users')
+          .update({ class_teacher_of: cls })
+          .eq('id', item.id);
+        if (error) throw error;
+        fetchStaff(school.id, currentUserRole);
+      } catch (err: any) {
+        Alert.alert('Update Error', err.message);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      const answer = window.prompt(
+        `Which class does ${name} take as class teacher?\n\n` +
+        `Type one of: ${ALL_CLASSES.join(', ')}\n\n` +
+        `Leave blank to remove the assignment.`,
+        item.class_teacher_of || ''
+      );
+      if (answer === null) return;
+      const trimmed = answer.trim();
+      if (trimmed === '') { save(null); return; }
+      const match = ALL_CLASSES.find(c => c.toLowerCase() === trimmed.toLowerCase());
+      if (!match) { window.alert(`"${trimmed}" is not one of the classes.`); return; }
+      save(match);
+    } else {
+      Alert.alert(
+        'Class Teacher',
+        `Which class does ${name} take?`,
+        [
+          ...ALL_CLASSES.map(c => ({ text: c, onPress: () => save(c) })),
+          { text: 'Remove assignment', style: 'destructive' as const, onPress: () => save(null) },
+          { text: 'Cancel', style: 'cancel' as const },
+        ]
+      );
+    }
+  }
+
+  // Only school leadership assigns class teachers.
+  function canAssignClassTeacher(item: any) {
+    if ((item.role || '').toLowerCase().trim() !== 'teacher') return false;
+    return ['principal', 'proprietor', 'admin'].includes(currentUserRole);
   }
 
   // Decides whether the deactivate/reactivate switch may show for a given staff row.
@@ -363,6 +421,16 @@ export default function TeachersScreen() {
                   <Ionicons name="call" size={12} color="#718096" style={{ marginRight: 4 }} />
                   <Text style={styles.staffEmail}>{item.phone || item.email}</Text>
                 </View>
+                {canAssignClassTeacher(item) && (
+                  <TouchableOpacity
+                    onPress={() => assignClassTeacher(item)}
+                    style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                    <Ionicons name="school-outline" size={12} color="#2B6CB0" style={{ marginRight: 4 }} />
+                    <Text style={styles.classTeacherText}>
+                      {item.class_teacher_of ? `Class Teacher — ${item.class_teacher_of}` : 'Assign class teacher'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
               <View style={styles.roleTag}>
@@ -406,6 +474,7 @@ const styles = StyleSheet.create({
   staffCard: { backgroundColor: '#FFFFFF', padding: 16, borderRadius: 12, marginBottom: 10, flexDirection: 'row', alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.02, elevation: 1, borderLeftWidth: 4, borderLeftColor: '#DD6B20' },
   staffName: { fontSize: 16, fontWeight: 'bold', color: '#2D3748' },
   staffEmail: { fontSize: 12, color: '#718096', fontWeight: '600' },
+  classTeacherText: { fontSize: 11, color: '#2B6CB0', fontWeight: '700' as any },
   roleTag: { backgroundColor: '#FEEBC8', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginRight: 10 },
   roleTagText: { color: '#DD6B20', fontSize: 11, fontWeight: '900' },
   deleteBtn: { padding: 8, backgroundColor: '#FFF5F5', borderRadius: 8 },
