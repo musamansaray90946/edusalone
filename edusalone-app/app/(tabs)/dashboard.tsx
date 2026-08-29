@@ -704,7 +704,18 @@ export default function PrincipalDashboard() {
   const pendingCount = pendingReports.filter((r: any) => r.status === 'pending_review').length;
 
   // Distinct class names (from enrolled students) — used to assign Form Teachers
-  const classList = [...new Set(roster.map((s: any) => s.current_class).filter(Boolean))].sort();
+  // Every class the school could run, plus any class name already in use on a
+  // student record. A school can assign a Class 1 form teacher before the first
+  // Class 1 pupil is enrolled.
+  const STANDARD_CLASSES = [
+    'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6',
+    'JSS1', 'JSS2', 'JSS3', 'SS1', 'SS2', 'SS3',
+  ];
+  const classList = [
+    ...STANDARD_CLASSES,
+    ...roster.map((s: any) => s.current_class).filter(Boolean)
+      .filter((c: string) => !STANDARD_CLASSES.includes(c)),
+  ];
 
   return (
     <SafeAreaView style={styles.container}>
