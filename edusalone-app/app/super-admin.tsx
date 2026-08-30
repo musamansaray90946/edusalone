@@ -24,6 +24,7 @@ export default function SuperAdminScreen() {
   const [addressInput, setAddressInput] = useState('');
   const [phoneInput, setPhoneInput] = useState('');
   const [emailInput, setEmailInput] = useState('');
+  const [titleInput, setTitleInput] = useState('Principal');
 
   useEffect(() => { loadSchools(); },[]);
 
@@ -218,6 +219,7 @@ async function updateSchoolSubscription() {
         address: addressInput.trim() || null,
         phone: phoneInput.trim() || null,
         email: emailInput.trim() || null,
+        leadership_title: titleInput.trim() || 'Principal',
       };
 
       // Parse payment due date
@@ -425,6 +427,23 @@ async function updateSchoolSubscription() {
             </View>
 
             {/* ── LETTERHEAD DETAILS ── */}
+            {/* Schools use different words for the same job. The stored user role
+                stays 'Principal'; this only changes what documents say. */}
+            <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#718096', marginBottom: 6, textTransform: 'uppercase' as any }}>Head of School Title</Text>
+            <View style={{ flexDirection: 'row', marginBottom: 16 }}>
+              {['Principal', 'Headmaster', 'Headmistress'].map(t => {
+                const active = titleInput === t;
+                return (
+                  <TouchableOpacity
+                    key={t}
+                    onPress={() => setTitleInput(t)}
+                    style={{ flex: 1, backgroundColor: active ? '#1A365D' : '#EDF2F7', borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginRight: 6 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '900' as any, color: active ? '#FFF' : '#4A5568' }}>{t}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
             <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#718096', marginBottom: 6, textTransform: 'uppercase' as any }}>School Motto / Slogan</Text>
             <TextInput style={[styles.input, { marginBottom: 16 }]} value={mottoInput} onChangeText={setMottoInput} placeholder="e.g. Knowledge is Light" placeholderTextColor="#A0AEC0" />
 
@@ -544,6 +563,7 @@ async function updateSchoolSubscription() {
                     setAddressInput(school.address || '');
                     setPhoneInput(school.phone || '');
                     setEmailInput(school.email || '');
+                    setTitleInput(school.leadership_title || 'Principal');
                   }} style={[styles.deleteBtn, { backgroundColor: '#EBF8FF', marginRight: 6 }]}>
                     <Ionicons name="settings-outline" size={18} color="#2B6CB0" />
                   </TouchableOpacity>

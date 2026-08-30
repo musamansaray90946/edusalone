@@ -320,7 +320,7 @@ async function generatePDFReportCard(student: any) {
       const reportYear = (mine.find(r => r.academic_year)?.academic_year) || '2025/2026';
 
       const htmlContent = buildReportCardHTML({
-        school: { name: school?.name, logo_url: school?.logo_url, school_code: school?.school_code },
+        school: { name: school?.name, logo_url: school?.logo_url, school_code: school?.school_code, motto: school?.motto, address: school?.address, phone: school?.phone, email: school?.email, leadership_title: school?.leadership_title },
         student: { id: student.id, full_name: student.users?.full_name, gender: student.gender, date_of_birth: student.date_of_birth, admission_number: student.admission_number, current_class: student.current_class },
         academicYear: reportYear,
         classRecords: recs,

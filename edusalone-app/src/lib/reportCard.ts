@@ -15,7 +15,7 @@ export interface ClassRecord {
 }
 
 export interface BuildReportArgs {
-  school: { name?: string | null; logo_url?: string | null; school_code?: string | null; motto?: string | null; address?: string | null; phone?: string | null; email?: string | null };
+  school: { name?: string | null; logo_url?: string | null; school_code?: string | null; motto?: string | null; address?: string | null; phone?: string | null; email?: string | null; leadership_title?: string | null };
   student: {
     id: string;
     full_name?: string | null;
@@ -489,7 +489,7 @@ export function buildReportCardHTML(args: BuildReportArgs): string {
         <div class="bottom">
           <div class="sigs">
             <div class="sig"><div class="lbl">Teacher's Remarks</div><div class="val">${esc(teacherRemark)}</div><div class="line">${formTeacher ? 'Class Teacher: ' + esc(formTeacher) : 'Class Teacher: __________________'} &nbsp;•&nbsp; Sign &amp; Date: __________</div></div>
-            <div class="sig"><div class="lbl">Principal's Remarks</div><div class="val">&nbsp;</div><div class="line">Sign &amp; Stamp: ____________________</div></div>
+            <div class="sig"><div class="lbl">${esc(school.leadership_title || 'Principal')}'s Remarks</div><div class="val">&nbsp;</div><div class="line">Sign &amp; Stamp: ____________________</div></div>
           </div>
           <div class="foot">
             <div class="promo">PROMOTION STATUS: ${esc(promotion)}</div>

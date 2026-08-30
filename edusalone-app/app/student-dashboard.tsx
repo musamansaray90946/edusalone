@@ -6,20 +6,20 @@ import * as Sharing from 'expo-sharing';
 import * as Speech from 'expo-speech';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Animated,
-    KeyboardAvoidingView,
-    Linking,
-    Modal,
-    Platform,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  Animated,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import AskAI from '../components/AskAI';
 import { registerForPush } from '../src/lib/registerPush';
@@ -723,7 +723,7 @@ useEffect(() => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.replace('/login'); return; }
 
-      const { data: profileData } = await supabase.from('users').select('*, schools(name, logo_url, school_code)').eq('email', user.email).single();
+      const { data: profileData } = await supabase.from('users').select('*, schools(name, logo_url, school_code, motto, address, phone, email, leadership_title)').eq('email', user.email).single();
       
       if (profileData) {
         setProfile(profileData);
@@ -1092,7 +1092,7 @@ async function downloadMyReportCard() {
       const reportYear = (mine.find(r => r.academic_year)?.academic_year) || '2025/2026';
 
       const htmlContent = buildReportCardHTML({
-        school: { name: profile?.schools?.name, logo_url: profile?.schools?.logo_url, school_code: profile?.schools?.school_code },
+        school: { name: profile?.schools?.name, logo_url: profile?.schools?.logo_url, school_code: profile?.schools?.school_code, motto: profile?.schools?.motto, address: profile?.schools?.address, phone: profile?.schools?.phone, email: profile?.schools?.email, leadership_title: profile?.schools?.leadership_title },
         student: { id: studentRecord.id, full_name: childName, gender: studentRecord.gender, date_of_birth: studentRecord.date_of_birth, admission_number: studentRecord.admission_number, current_class: studentRecord.current_class },
         academicYear: reportYear,
         classRecords: recs,
