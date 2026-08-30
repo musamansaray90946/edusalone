@@ -438,6 +438,21 @@ export default function PrincipalDashboard() {
     setAssigningId(null);
   }
 
+  // Schools use different words for the same job. The stored user role stays
+  // 'Principal'; this only changes what printed documents say.
+  async function setLeadershipTitle(title: string) {
+    try {
+      const { error } = await supabase.from('schools')
+        .update({ leadership_title: title }).eq('id', profile.school_id);
+      if (error) throw error;
+      setSchool((prev: any) => ({ ...prev, leadership_title: title }));
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      const m = e.message || 'Could not save the title.';
+      if (Platform.OS === 'web') window.alert('Error: ' + m); else Alert.alert('Error', m);
+    }
+  }
+
   async function handleAuthorizeAccess() {
     if (!studentForm.fullName || !studentForm.admissionId) {
       Alert.alert('Incomplete Entry', 'Full name and Admission ID are required.');
@@ -755,6 +770,25 @@ export default function PrincipalDashboard() {
             <Ionicons name="copy-outline" size={22} color="#FFF" opacity={0.6} />
           </TouchableOpacity>
           <Text style={styles.vaultHint}>Share this code to link staff and parents to this institution.</Text>
+
+          {canSeePrincipalTools && (
+            <View style={{ marginTop: 18, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.15)', paddingTop: 14 }}>
+              <Text style={styles.codeLabel}>HOW REPORT CARDS SHOULD ADDRESS YOU</Text>
+              <View style={{ flexDirection: 'row', marginTop: 8 }}>
+                {['Principal', 'Headmaster', 'Headmistress'].map(t => {
+                  const active = (school?.leadership_title || 'Principal') === t;
+                  return (
+                    <TouchableOpacity
+                      key={t}
+                      onPress={() => setLeadershipTitle(t)}
+                      style={{ flex: 1, backgroundColor: active ? '#FFF' : 'rgba(255,255,255,0.12)', borderRadius: 10, paddingVertical: 10, alignItems: 'center', marginRight: 6 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '900' as any, color: active ? PRIMARY_NAVY : '#FFF' }}>{t}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
         </View>
 
         {/* METRICS */}
